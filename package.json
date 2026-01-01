@@ -1,0 +1,49 @@
+{
+  "name": "@back23/promptly-sdk",
+  "version": "1.1.0",
+  "description": "Promptly AI CMS SDK for JavaScript/TypeScript",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "promptly",
+    "cms",
+    "headless",
+    "api",
+    "sdk"
+  ],
+  "author": "jiahnpark",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kingofecommerce/back23-promptly-sdk.git"
+  },
+    "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=4.7.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  }
+}
