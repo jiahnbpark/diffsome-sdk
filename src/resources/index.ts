@@ -9,3 +9,4 @@ export { FormsResource } from './forms';
 export { ShopResource } from './shop';
 export { MediaResource } from './media';
 export { EntitiesResource } from './entities';
+export { ReservationResource } from './reservation';

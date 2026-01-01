@@ -7,7 +7,7 @@
  */
 
 import type { HttpClient } from '../http';
-import type { PaginatedResponse } from '../types';
+import type { ListResponse } from '../types';
 import type {
   CustomEntity,
   EntityRecord,
@@ -26,6 +26,7 @@ export class EntitiesResource {
 
   /**
    * List all active custom entities
+   * @returns Array of entities (always an array)
    *
    * @example
    * ```typescript
@@ -34,7 +35,8 @@ export class EntitiesResource {
    * ```
    */
   async list(): Promise<CustomEntity[]> {
-    return this.http.get<CustomEntity[]>('/public/entities');
+    const response = await this.http.getList<CustomEntity>('/public/entities');
+    return response.data;
   }
 
   /**
@@ -56,6 +58,7 @@ export class EntitiesResource {
 
   /**
    * List records for an entity
+   * @returns ListResponse with data array and pagination meta
    *
    * @example
    * ```typescript
@@ -75,8 +78,8 @@ export class EntitiesResource {
    * });
    * ```
    */
-  async listRecords(slug: string, params?: EntityListParams): Promise<PaginatedResponse<EntityRecord>> {
-    return this.http.get<PaginatedResponse<EntityRecord>>(`/public/entities/${slug}`, params);
+  async listRecords(slug: string, params?: EntityListParams): Promise<ListResponse<EntityRecord>> {
+    return this.http.getList<EntityRecord>(`/public/entities/${slug}`, params);
   }
 
   /**

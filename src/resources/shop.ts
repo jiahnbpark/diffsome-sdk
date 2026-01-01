@@ -3,7 +3,7 @@
  */
 
 import type { HttpClient } from '../http';
-import type { PaginatedResponse } from '../types';
+import type { ListResponse } from '../types';
 import type {
   Product,
   ProductCategory,
@@ -33,9 +33,10 @@ export class ShopResource {
 
   /**
    * List products
+   * @returns ListResponse with data array and pagination meta
    */
-  async listProducts(params?: ProductListParams): Promise<PaginatedResponse<Product>> {
-    return this.http.get<PaginatedResponse<Product>>('/public/products', params);
+  async listProducts(params?: ProductListParams): Promise<ListResponse<Product>> {
+    return this.http.getList<Product>('/public/products', params);
   }
 
   /**
@@ -47,9 +48,10 @@ export class ShopResource {
 
   /**
    * Get featured products
+   * @returns Array of featured products (always an array)
    */
   async featuredProducts(limit: number = 8): Promise<Product[]> {
-    const response = await this.http.get<PaginatedResponse<Product>>('/public/products', {
+    const response = await this.http.getList<Product>('/public/products', {
       per_page: limit,
       is_featured: true,
     });
@@ -58,9 +60,10 @@ export class ShopResource {
 
   /**
    * Search products
+   * @returns ListResponse with data array and pagination meta
    */
-  async searchProducts(query: string, params?: Omit<ProductListParams, 'search'>): Promise<PaginatedResponse<Product>> {
-    return this.http.get<PaginatedResponse<Product>>('/public/products', {
+  async searchProducts(query: string, params?: Omit<ProductListParams, 'search'>): Promise<ListResponse<Product>> {
+    return this.http.getList<Product>('/public/products', {
       ...params,
       search: query,
     });
@@ -72,9 +75,11 @@ export class ShopResource {
 
   /**
    * List product categories
+   * @returns Array of categories (always an array)
    */
   async listCategories(): Promise<ProductCategory[]> {
-    return this.http.get<ProductCategory[]>('/public/categories');
+    const response = await this.http.getList<ProductCategory>('/public/categories');
+    return response.data;
   }
 
   /**
@@ -86,9 +91,10 @@ export class ShopResource {
 
   /**
    * Get products in category
+   * @returns ListResponse with data array and pagination meta
    */
-  async categoryProducts(categoryIdOrSlug: number | string, params?: Omit<ProductListParams, 'category'>): Promise<PaginatedResponse<Product>> {
-    return this.http.get<PaginatedResponse<Product>>(`/public/categories/${categoryIdOrSlug}/products`, params);
+  async categoryProducts(categoryIdOrSlug: number | string, params?: Omit<ProductListParams, 'category'>): Promise<ListResponse<Product>> {
+    return this.http.getList<Product>(`/public/categories/${categoryIdOrSlug}/products`, params);
   }
 
   // ============================================
@@ -136,9 +142,10 @@ export class ShopResource {
 
   /**
    * List my orders
+   * @returns ListResponse with data array and pagination meta
    */
-  async listOrders(params?: OrderListParams): Promise<PaginatedResponse<Order>> {
-    return this.http.get<PaginatedResponse<Order>>('/orders', params);
+  async listOrders(params?: OrderListParams): Promise<ListResponse<Order>> {
+    return this.http.getList<Order>('/orders', params);
   }
 
   /**
@@ -210,8 +217,10 @@ export class ShopResource {
 
   /**
    * Get available coupons for current user
+   * @returns Array of coupons (always an array)
    */
   async myCoupons(): Promise<Coupon[]> {
-    return this.http.get<Coupon[]>('/coupons');
+    const response = await this.http.getList<Coupon>('/coupons');
+    return response.data;
   }
 }

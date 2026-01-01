@@ -13,6 +13,31 @@ interface ApiResponse<T> {
     data: T;
     message?: string;
 }
+/**
+ * Pagination metadata
+ */
+interface PaginationMeta {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    from: number | null;
+    to: number | null;
+}
+/**
+ * Unified list response - ALWAYS returns this structure for list APIs
+ * - data is ALWAYS an array (never null/undefined)
+ * - meta contains pagination info
+ */
+interface ListResponse<T> {
+    /** Array of items - guaranteed to be an array (empty if no data) */
+    data: T[];
+    /** Pagination metadata */
+    meta: PaginationMeta;
+}
+/**
+ * @deprecated Use ListResponse<T> instead. Kept for backward compatibility.
+ */
 interface PaginatedResponse<T> {
     data: T[];
     meta: {
@@ -596,6 +621,110 @@ interface UpdateEntityRecordData {
 }
 
 /**
+ * Reservation types for Promptly SDK
+ */
+interface ReservationService {
+    id: number;
+    name: string;
+    slug: string;
+    description: string | null;
+    thumbnail: string | null;
+    duration: number;
+    price: number;
+    requires_staff: boolean;
+    requires_payment: boolean;
+    deposit: number;
+    staffs: ReservationStaffSummary[];
+}
+interface ReservationStaff {
+    id: number;
+    name: string;
+    avatar: string | null;
+    bio: string | null;
+}
+interface ReservationStaffSummary {
+    id: number;
+    name: string;
+    avatar: string | null;
+}
+interface ReservationSlot {
+    time: string;
+    available: boolean;
+    staff_id?: number;
+}
+interface ReservationSettings {
+    timezone: string;
+    slot_interval: number;
+    min_notice_hours: number;
+    max_advance_days: number;
+    cancellation_hours: number;
+    allow_online_payment: boolean;
+    bookable_date_range: {
+        start: string;
+        end: string;
+    };
+}
+interface Reservation {
+    id: number;
+    reservation_number: string;
+    status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+    status_label: string;
+    reservation_date: string;
+    start_time: string;
+    end_time: string;
+    time_range: string;
+    customer_name: string;
+    customer_phone: string | null;
+    customer_email: string | null;
+    price: number;
+    deposit: number;
+    payment_status: 'pending' | 'paid' | 'refunded' | 'partial';
+    payment_status_label: string;
+    customer_memo: string | null;
+    can_cancel: boolean;
+    service: {
+        id: number;
+        name: string;
+        duration: number;
+    } | null;
+    staff: ReservationStaffSummary | null;
+    created_at: string;
+}
+interface CreateReservationData {
+    service_id: number;
+    staff_id?: number;
+    reservation_date: string;
+    start_time: string;
+    customer_name: string;
+    customer_phone?: string;
+    customer_email?: string;
+    customer_memo?: string;
+}
+interface CreateReservationResult {
+    reservation: Reservation;
+    requires_payment: boolean;
+    deposit: number;
+}
+interface AvailableDatesParams {
+    service_id: number;
+    staff_id?: number;
+    start_date?: string;
+    end_date?: string;
+}
+interface AvailableSlotsParams {
+    service_id: number;
+    date: string;
+    staff_id?: number;
+}
+interface ReservationListParams {
+    status?: string;
+    upcoming?: boolean;
+    past?: boolean;
+    per_page?: number;
+    page?: number;
+}
+
+/**
  * HTTP Client for Promptly SDK
  */
 
@@ -644,6 +773,11 @@ declare class HttpClient {
      * GET request
      */
     get<T>(endpoint: string, params?: Record<string, any>): Promise<T>;
+    /**
+     * GET request for list endpoints - ALWAYS returns normalized ListResponse
+     * Guarantees: data is always an array, meta is always present
+     */
+    getList<T>(endpoint: string, params?: Record<string, any>): Promise<ListResponse<T>>;
     /**
      * POST request
      */
@@ -740,16 +874,18 @@ declare class BoardsResource {
     constructor(http: HttpClient);
     /**
      * List all boards
+     * @returns ListResponse with data array (always defined) and pagination meta
      */
-    list(params?: BoardListParams): Promise<Board[]>;
+    list(params?: BoardListParams): Promise<ListResponse<Board>>;
     /**
      * Get board by ID or slug
      */
     get(idOrSlug: number | string): Promise<Board>;
     /**
      * List posts in a board
+     * @returns ListResponse with data array and pagination meta
      */
-    listPosts(boardIdOrSlug: number | string, params?: PostListParams): Promise<PaginatedResponse<BoardPost>>;
+    listPosts(boardIdOrSlug: number | string, params?: PostListParams): Promise<ListResponse<BoardPost>>;
     /**
      * Get post by ID
      */
@@ -768,6 +904,7 @@ declare class BoardsResource {
     deletePost(postId: number): Promise<void>;
     /**
      * List comments for a post
+     * @returns Array of comments (always an array, never null/undefined)
      */
     listComments(postId: number): Promise<BoardComment[]>;
     /**
@@ -793,8 +930,9 @@ declare class BlogResource {
     constructor(http: HttpClient);
     /**
      * List blog posts
+     * @returns ListResponse with data array (always defined) and pagination meta
      */
-    list(params?: BlogListParams): Promise<PaginatedResponse<BlogPost>>;
+    list(params?: BlogListParams): Promise<ListResponse<BlogPost>>;
     /**
      * Get blog post by slug
      */
@@ -805,26 +943,32 @@ declare class BlogResource {
     getById(id: number): Promise<BlogPost>;
     /**
      * Get featured blog posts
+     * @returns Array of featured posts (always an array, never null/undefined)
      */
     featured(limit?: number): Promise<BlogPost[]>;
     /**
      * Get blog posts by category
+     * @returns ListResponse with data array and pagination meta
      */
-    byCategory(category: string, params?: Omit<BlogListParams, 'category'>): Promise<PaginatedResponse<BlogPost>>;
+    byCategory(category: string, params?: Omit<BlogListParams, 'category'>): Promise<ListResponse<BlogPost>>;
     /**
      * Get blog posts by tag
+     * @returns ListResponse with data array and pagination meta
      */
-    byTag(tag: string, params?: Omit<BlogListParams, 'tag'>): Promise<PaginatedResponse<BlogPost>>;
+    byTag(tag: string, params?: Omit<BlogListParams, 'tag'>): Promise<ListResponse<BlogPost>>;
     /**
      * Search blog posts
+     * @returns ListResponse with data array and pagination meta
      */
-    search(query: string, params?: Omit<BlogListParams, 'search'>): Promise<PaginatedResponse<BlogPost>>;
+    search(query: string, params?: Omit<BlogListParams, 'search'>): Promise<ListResponse<BlogPost>>;
     /**
      * Get blog categories
+     * @returns Array of category names (always an array)
      */
     categories(): Promise<string[]>;
     /**
      * Get blog tags
+     * @returns Array of tag names (always an array)
      */
     tags(): Promise<string[]>;
 }
@@ -838,8 +982,9 @@ declare class FormsResource {
     constructor(http: HttpClient);
     /**
      * List all forms
+     * @returns ListResponse with data array and pagination meta
      */
-    list(params?: FormListParams): Promise<Form[]>;
+    list(params?: FormListParams): Promise<ListResponse<Form>>;
     /**
      * Get form by ID or slug
      */
@@ -850,8 +995,9 @@ declare class FormsResource {
     submit(formIdOrSlug: number | string, data: SubmitFormData): Promise<FormSubmission>;
     /**
      * Get my form submissions
+     * @returns ListResponse with data array and pagination meta
      */
-    mySubmissions(params?: SubmissionListParams): Promise<PaginatedResponse<FormSubmission>>;
+    mySubmissions(params?: SubmissionListParams): Promise<ListResponse<FormSubmission>>;
     /**
      * Get specific submission
      */
@@ -867,22 +1013,26 @@ declare class ShopResource {
     constructor(http: HttpClient);
     /**
      * List products
+     * @returns ListResponse with data array and pagination meta
      */
-    listProducts(params?: ProductListParams): Promise<PaginatedResponse<Product>>;
+    listProducts(params?: ProductListParams): Promise<ListResponse<Product>>;
     /**
      * Get product by ID or slug
      */
     getProduct(idOrSlug: number | string): Promise<Product>;
     /**
      * Get featured products
+     * @returns Array of featured products (always an array)
      */
     featuredProducts(limit?: number): Promise<Product[]>;
     /**
      * Search products
+     * @returns ListResponse with data array and pagination meta
      */
-    searchProducts(query: string, params?: Omit<ProductListParams, 'search'>): Promise<PaginatedResponse<Product>>;
+    searchProducts(query: string, params?: Omit<ProductListParams, 'search'>): Promise<ListResponse<Product>>;
     /**
      * List product categories
+     * @returns Array of categories (always an array)
      */
     listCategories(): Promise<ProductCategory[]>;
     /**
@@ -891,8 +1041,9 @@ declare class ShopResource {
     getCategory(idOrSlug: number | string): Promise<ProductCategory>;
     /**
      * Get products in category
+     * @returns ListResponse with data array and pagination meta
      */
-    categoryProducts(categoryIdOrSlug: number | string, params?: Omit<ProductListParams, 'category'>): Promise<PaginatedResponse<Product>>;
+    categoryProducts(categoryIdOrSlug: number | string, params?: Omit<ProductListParams, 'category'>): Promise<ListResponse<Product>>;
     /**
      * Get current cart
      */
@@ -915,8 +1066,9 @@ declare class ShopResource {
     clearCart(): Promise<void>;
     /**
      * List my orders
+     * @returns ListResponse with data array and pagination meta
      */
-    listOrders(params?: OrderListParams): Promise<PaginatedResponse<Order>>;
+    listOrders(params?: OrderListParams): Promise<ListResponse<Order>>;
     /**
      * Get order by ID or order number
      */
@@ -954,6 +1106,7 @@ declare class ShopResource {
     validateCoupon(code: string, orderAmount: number): Promise<CouponValidation>;
     /**
      * Get available coupons for current user
+     * @returns Array of coupons (always an array)
      */
     myCoupons(): Promise<Coupon[]>;
 }
@@ -990,19 +1143,12 @@ declare class MediaResource {
     delete(mediaId: number): Promise<void>;
 }
 
-/**
- * Custom Entities Resource for Promptly SDK
- *
- * Provides access to dynamically created data structures.
- * AI can create custom entities through MCP, and this SDK allows
- * frontend applications to interact with them.
- */
-
 declare class EntitiesResource {
     private http;
     constructor(http: HttpClient);
     /**
      * List all active custom entities
+     * @returns Array of entities (always an array)
      *
      * @example
      * ```typescript
@@ -1023,6 +1169,7 @@ declare class EntitiesResource {
     getSchema(slug: string): Promise<EntitySchema>;
     /**
      * List records for an entity
+     * @returns ListResponse with data array and pagination meta
      *
      * @example
      * ```typescript
@@ -1042,7 +1189,7 @@ declare class EntitiesResource {
      * });
      * ```
      */
-    listRecords(slug: string, params?: EntityListParams): Promise<PaginatedResponse<EntityRecord>>;
+    listRecords(slug: string, params?: EntityListParams): Promise<ListResponse<EntityRecord>>;
     /**
      * Get a single record by ID
      *
@@ -1123,18 +1270,7 @@ declare class EntitiesResource {
             data: Array<Omit<EntityRecord, "data"> & {
                 data: T;
             }>;
-            meta: {
-                current_page: number;
-                last_page: number;
-                per_page: number;
-                total: number;
-            };
-            links?: {
-                first: string;
-                last: string;
-                prev: string | null;
-                next: string | null;
-            };
+            meta: PaginationMeta;
         }>;
         get: (id: number) => Promise<Omit<EntityRecord, "data"> & {
             data: T;
@@ -1147,6 +1283,71 @@ declare class EntitiesResource {
         }>;
         delete: (id: number) => Promise<void>;
     };
+}
+
+/**
+ * Reservation Resource for Promptly SDK
+ */
+
+declare class ReservationResource {
+    private http;
+    constructor(http: HttpClient);
+    /**
+     * Get reservation settings
+     * @returns Reservation settings for the tenant
+     */
+    getSettings(): Promise<ReservationSettings>;
+    /**
+     * List available services
+     * @returns Array of services (always an array)
+     */
+    listServices(): Promise<ReservationService[]>;
+    /**
+     * List available staff members
+     * @param serviceId - Optional: filter staff by service
+     * @returns Array of staff members (always an array)
+     */
+    listStaff(serviceId?: number): Promise<ReservationStaff[]>;
+    /**
+     * Get available dates for booking
+     * @returns Array of available date strings (YYYY-MM-DD)
+     */
+    getAvailableDates(params: AvailableDatesParams): Promise<string[]>;
+    /**
+     * Get available time slots for a specific date
+     * @returns Array of available slots (always an array)
+     */
+    getAvailableSlots(params: AvailableSlotsParams): Promise<ReservationSlot[]>;
+    /**
+     * Create a new reservation
+     * @returns Created reservation with payment info
+     */
+    create(data: CreateReservationData): Promise<CreateReservationResult>;
+    /**
+     * List my reservations
+     * @returns ListResponse with reservations and pagination meta
+     */
+    list(params?: ReservationListParams): Promise<ListResponse<Reservation>>;
+    /**
+     * Get upcoming reservations
+     * @returns Array of upcoming reservations
+     */
+    upcoming(limit?: number): Promise<Reservation[]>;
+    /**
+     * Get past reservations
+     * @returns Array of past reservations
+     */
+    past(limit?: number): Promise<Reservation[]>;
+    /**
+     * Get reservation by reservation number
+     */
+    get(reservationNumber: string): Promise<Reservation>;
+    /**
+     * Cancel a reservation
+     * @param reservationNumber - Reservation number to cancel
+     * @param reason - Optional cancellation reason
+     */
+    cancel(reservationNumber: string, reason?: string): Promise<Reservation>;
 }
 
 /**
@@ -1191,6 +1392,8 @@ declare class Promptly {
     readonly media: MediaResource;
     /** Custom entities - dynamic data structures created by AI */
     readonly entities: EntitiesResource;
+    /** Reservations - booking services and time slots */
+    readonly reservation: ReservationResource;
     constructor(config: PromptlyConfig);
     /**
      * Get site theme settings
@@ -1218,4 +1421,4 @@ declare class Promptly {
     getToken(): string | null;
 }
 
-export { type AddToCartData, type ApiError, type ApiResponse, type ApplyCouponData, type AuthResponse, type BlogListParams, type BlogPost, type Board, type BoardComment, type BoardListParams, type BoardPost, type BoardSettings, type Cart, type CartItem, type Coupon, type CouponType, type CouponValidation, type CreateCommentData, type CreateEntityRecordData, type CreateOrderData, type CreatePostData, type CustomEntity, type EntityField, type EntityListParams, type EntityRecord, type EntitySchema, type ForgotPasswordData, type Form, type FormField, type FormFieldOption, type FormFieldType, type FormFieldValidation, type FormListParams, type FormSettings, type FormSubmission, type ListParams, type LoginCredentials, type Media, type Member, type Order, type OrderItem, type OrderListParams, type OrderStatus, type PaginatedResponse, type Payment, type PaymentCancelData, type PaymentConfirmData, type PaymentMethod, type PaymentReadyData, type PaymentStatus, type PostListParams, type Product, type ProductCategory, type ProductListParams, type ProductOption, type ProductOptionValue, type ProductStatus, type ProductVariant, Promptly, type PromptlyConfig, PromptlyError, type RegisterData, type ResetPasswordData, type SocialAuthUrl, type SocialProvider, type SubmissionListParams, type SubmitFormData, type UpdateCartItemData, type UpdateCommentData, type UpdateEntityRecordData, type UpdatePostData, type UpdateProfileData, Promptly as default };
+export { type AddToCartData, type ApiError, type ApiResponse, type ApplyCouponData, type AuthResponse, type AvailableDatesParams, type AvailableSlotsParams, type BlogListParams, type BlogPost, type Board, type BoardComment, type BoardListParams, type BoardPost, type BoardSettings, type Cart, type CartItem, type Coupon, type CouponType, type CouponValidation, type CreateCommentData, type CreateEntityRecordData, type CreateOrderData, type CreatePostData, type CreateReservationData, type CreateReservationResult, type CustomEntity, type EntityField, type EntityListParams, type EntityRecord, type EntitySchema, type ForgotPasswordData, type Form, type FormField, type FormFieldOption, type FormFieldType, type FormFieldValidation, type FormListParams, type FormSettings, type FormSubmission, type ListParams, type ListResponse, type LoginCredentials, type Media, type Member, type Order, type OrderItem, type OrderListParams, type OrderStatus, type PaginatedResponse, type PaginationMeta, type Payment, type PaymentCancelData, type PaymentConfirmData, type PaymentMethod, type PaymentReadyData, type PaymentStatus, type PostListParams, type Product, type ProductCategory, type ProductListParams, type ProductOption, type ProductOptionValue, type ProductStatus, type ProductVariant, Promptly, type PromptlyConfig, PromptlyError, type RegisterData, type Reservation, type ReservationListParams, type ReservationService, type ReservationSettings, type ReservationSlot, type ReservationStaff, type ReservationStaffSummary, type ResetPasswordData, type SocialAuthUrl, type SocialProvider, type SubmissionListParams, type SubmitFormData, type UpdateCartItemData, type UpdateCommentData, type UpdateEntityRecordData, type UpdatePostData, type UpdateProfileData, Promptly as default };

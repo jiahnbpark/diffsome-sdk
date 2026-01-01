@@ -2,13 +2,61 @@
  * HTTP Client for Promptly SDK
  */
 
-import type { PromptlyConfig, ApiError } from './types';
+import type { PromptlyConfig, ApiError, ListResponse, PaginationMeta } from './types';
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: Record<string, any>;
   params?: Record<string, any>;
   headers?: Record<string, string>;
+}
+
+/**
+ * Default pagination meta for empty/missing responses
+ */
+const DEFAULT_META: PaginationMeta = {
+  current_page: 1,
+  last_page: 1,
+  per_page: 15,
+  total: 0,
+  from: null,
+  to: null,
+};
+
+/**
+ * Normalize any response to ListResponse format
+ * Handles: [], { data: [] }, { data: [], meta: {} }, null, undefined
+ */
+function normalizeListResponse<T>(response: any): ListResponse<T> {
+  // Handle null/undefined
+  if (response == null) {
+    return { data: [], meta: { ...DEFAULT_META } };
+  }
+
+  // Handle direct array response
+  if (Array.isArray(response)) {
+    return {
+      data: response,
+      meta: { ...DEFAULT_META, total: response.length, from: response.length > 0 ? 1 : null, to: response.length > 0 ? response.length : null },
+    };
+  }
+
+  // Handle object response
+  if (typeof response === 'object') {
+    const data = Array.isArray(response.data) ? response.data : [];
+    const meta: PaginationMeta = {
+      current_page: response.meta?.current_page ?? response.current_page ?? 1,
+      last_page: response.meta?.last_page ?? response.last_page ?? 1,
+      per_page: response.meta?.per_page ?? response.per_page ?? 15,
+      total: response.meta?.total ?? response.total ?? data.length,
+      from: response.meta?.from ?? response.from ?? (data.length > 0 ? 1 : null),
+      to: response.meta?.to ?? response.to ?? (data.length > 0 ? data.length : null),
+    };
+    return { data, meta };
+  }
+
+  // Fallback
+  return { data: [], meta: { ...DEFAULT_META } };
 }
 
 export class PromptlyError extends Error {
@@ -147,6 +195,15 @@ export class HttpClient {
    */
   get<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
     return this.request<T>(endpoint, { method: 'GET', params });
+  }
+
+  /**
+   * GET request for list endpoints - ALWAYS returns normalized ListResponse
+   * Guarantees: data is always an array, meta is always present
+   */
+  async getList<T>(endpoint: string, params?: Record<string, any>): Promise<ListResponse<T>> {
+    const response = await this.request<any>(endpoint, { method: 'GET', params });
+    return normalizeListResponse<T>(response);
   }
 
   /**

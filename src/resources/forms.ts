@@ -3,7 +3,7 @@
  */
 
 import type { HttpClient } from '../http';
-import type { PaginatedResponse } from '../types';
+import type { ListResponse } from '../types';
 import type {
   Form,
   FormSubmission,
@@ -17,9 +17,10 @@ export class FormsResource {
 
   /**
    * List all forms
+   * @returns ListResponse with data array and pagination meta
    */
-  async list(params?: FormListParams): Promise<Form[]> {
-    return this.http.get<Form[]>('/public/forms', params);
+  async list(params?: FormListParams): Promise<ListResponse<Form>> {
+    return this.http.getList<Form>('/public/forms', params);
   }
 
   /**
@@ -42,9 +43,10 @@ export class FormsResource {
 
   /**
    * Get my form submissions
+   * @returns ListResponse with data array and pagination meta
    */
-  async mySubmissions(params?: SubmissionListParams): Promise<PaginatedResponse<FormSubmission>> {
-    return this.http.get<PaginatedResponse<FormSubmission>>('/form-submissions', params);
+  async mySubmissions(params?: SubmissionListParams): Promise<ListResponse<FormSubmission>> {
+    return this.http.getList<FormSubmission>('/form-submissions', params);
   }
 
   /**

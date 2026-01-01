@@ -3,7 +3,7 @@
  */
 
 import type { HttpClient } from '../http';
-import type { PaginatedResponse } from '../types';
+import type { ListResponse } from '../types';
 import type { BlogPost, BlogListParams } from '../types';
 
 export class BlogResource {
@@ -11,9 +11,10 @@ export class BlogResource {
 
   /**
    * List blog posts
+   * @returns ListResponse with data array (always defined) and pagination meta
    */
-  async list(params?: BlogListParams): Promise<PaginatedResponse<BlogPost>> {
-    return this.http.get<PaginatedResponse<BlogPost>>('/public/blog', params);
+  async list(params?: BlogListParams): Promise<ListResponse<BlogPost>> {
+    return this.http.getList<BlogPost>('/public/blog', params);
   }
 
   /**
@@ -32,9 +33,10 @@ export class BlogResource {
 
   /**
    * Get featured blog posts
+   * @returns Array of featured posts (always an array, never null/undefined)
    */
   async featured(limit: number = 5): Promise<BlogPost[]> {
-    const response = await this.http.get<PaginatedResponse<BlogPost>>('/public/blog', {
+    const response = await this.http.getList<BlogPost>('/public/blog', {
       per_page: limit,
       featured: true,
     });
@@ -43,9 +45,10 @@ export class BlogResource {
 
   /**
    * Get blog posts by category
+   * @returns ListResponse with data array and pagination meta
    */
-  async byCategory(category: string, params?: Omit<BlogListParams, 'category'>): Promise<PaginatedResponse<BlogPost>> {
-    return this.http.get<PaginatedResponse<BlogPost>>('/public/blog', {
+  async byCategory(category: string, params?: Omit<BlogListParams, 'category'>): Promise<ListResponse<BlogPost>> {
+    return this.http.getList<BlogPost>('/public/blog', {
       ...params,
       category,
     });
@@ -53,9 +56,10 @@ export class BlogResource {
 
   /**
    * Get blog posts by tag
+   * @returns ListResponse with data array and pagination meta
    */
-  async byTag(tag: string, params?: Omit<BlogListParams, 'tag'>): Promise<PaginatedResponse<BlogPost>> {
-    return this.http.get<PaginatedResponse<BlogPost>>('/public/blog', {
+  async byTag(tag: string, params?: Omit<BlogListParams, 'tag'>): Promise<ListResponse<BlogPost>> {
+    return this.http.getList<BlogPost>('/public/blog', {
       ...params,
       tag,
     });
@@ -63,9 +67,10 @@ export class BlogResource {
 
   /**
    * Search blog posts
+   * @returns ListResponse with data array and pagination meta
    */
-  async search(query: string, params?: Omit<BlogListParams, 'search'>): Promise<PaginatedResponse<BlogPost>> {
-    return this.http.get<PaginatedResponse<BlogPost>>('/public/blog', {
+  async search(query: string, params?: Omit<BlogListParams, 'search'>): Promise<ListResponse<BlogPost>> {
+    return this.http.getList<BlogPost>('/public/blog', {
       ...params,
       search: query,
     });
@@ -73,15 +78,19 @@ export class BlogResource {
 
   /**
    * Get blog categories
+   * @returns Array of category names (always an array)
    */
   async categories(): Promise<string[]> {
-    return this.http.get<string[]>('/public/blog/categories');
+    const response = await this.http.get<string[] | { data: string[] }>('/public/blog/categories');
+    return Array.isArray(response) ? response : (response?.data ?? []);
   }
 
   /**
    * Get blog tags
+   * @returns Array of tag names (always an array)
    */
   async tags(): Promise<string[]> {
-    return this.http.get<string[]>('/public/blog/tags');
+    const response = await this.http.get<string[] | { data: string[] }>('/public/blog/tags');
+    return Array.isArray(response) ? response : (response?.data ?? []);
   }
 }

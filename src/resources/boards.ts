@@ -3,7 +3,7 @@
  */
 
 import type { HttpClient } from '../http';
-import type { PaginatedResponse } from '../types';
+import type { ListResponse } from '../types';
 import type {
   Board,
   BoardPost,
@@ -25,9 +25,10 @@ export class BoardsResource {
 
   /**
    * List all boards
+   * @returns ListResponse with data array (always defined) and pagination meta
    */
-  async list(params?: BoardListParams): Promise<Board[]> {
-    return this.http.get<Board[]>('/public/boards', params);
+  async list(params?: BoardListParams): Promise<ListResponse<Board>> {
+    return this.http.getList<Board>('/public/boards', params);
   }
 
   /**
@@ -43,9 +44,10 @@ export class BoardsResource {
 
   /**
    * List posts in a board
+   * @returns ListResponse with data array and pagination meta
    */
-  async listPosts(boardIdOrSlug: number | string, params?: PostListParams): Promise<PaginatedResponse<BoardPost>> {
-    return this.http.get<PaginatedResponse<BoardPost>>(`/public/boards/${boardIdOrSlug}/posts`, params);
+  async listPosts(boardIdOrSlug: number | string, params?: PostListParams): Promise<ListResponse<BoardPost>> {
+    return this.http.getList<BoardPost>(`/public/boards/${boardIdOrSlug}/posts`, params);
   }
 
   /**
@@ -86,9 +88,11 @@ export class BoardsResource {
 
   /**
    * List comments for a post
+   * @returns Array of comments (always an array, never null/undefined)
    */
   async listComments(postId: number): Promise<BoardComment[]> {
-    return this.http.get<BoardComment[]>(`/public/posts/${postId}/comments`);
+    const response = await this.http.getList<BoardComment>(`/public/posts/${postId}/comments`);
+    return response.data;
   }
 
   /**

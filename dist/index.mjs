@@ -1,4 +1,36 @@
 // src/http.ts
+var DEFAULT_META = {
+  current_page: 1,
+  last_page: 1,
+  per_page: 15,
+  total: 0,
+  from: null,
+  to: null
+};
+function normalizeListResponse(response) {
+  if (response == null) {
+    return { data: [], meta: { ...DEFAULT_META } };
+  }
+  if (Array.isArray(response)) {
+    return {
+      data: response,
+      meta: { ...DEFAULT_META, total: response.length, from: response.length > 0 ? 1 : null, to: response.length > 0 ? response.length : null }
+    };
+  }
+  if (typeof response === "object") {
+    const data = Array.isArray(response.data) ? response.data : [];
+    const meta = {
+      current_page: response.meta?.current_page ?? response.current_page ?? 1,
+      last_page: response.meta?.last_page ?? response.last_page ?? 1,
+      per_page: response.meta?.per_page ?? response.per_page ?? 15,
+      total: response.meta?.total ?? response.total ?? data.length,
+      from: response.meta?.from ?? response.from ?? (data.length > 0 ? 1 : null),
+      to: response.meta?.to ?? response.to ?? (data.length > 0 ? data.length : null)
+    };
+    return { data, meta };
+  }
+  return { data: [], meta: { ...DEFAULT_META } };
+}
 var PromptlyError = class extends Error {
   constructor(message, status, errors) {
     super(message);
@@ -105,6 +137,14 @@ var HttpClient = class {
    */
   get(endpoint, params) {
     return this.request(endpoint, { method: "GET", params });
+  }
+  /**
+   * GET request for list endpoints - ALWAYS returns normalized ListResponse
+   * Guarantees: data is always an array, meta is always present
+   */
+  async getList(endpoint, params) {
+    const response = await this.request(endpoint, { method: "GET", params });
+    return normalizeListResponse(response);
   }
   /**
    * POST request
@@ -289,9 +329,10 @@ var BoardsResource = class {
   // ============================================
   /**
    * List all boards
+   * @returns ListResponse with data array (always defined) and pagination meta
    */
   async list(params) {
-    return this.http.get("/public/boards", params);
+    return this.http.getList("/public/boards", params);
   }
   /**
    * Get board by ID or slug
@@ -304,9 +345,10 @@ var BoardsResource = class {
   // ============================================
   /**
    * List posts in a board
+   * @returns ListResponse with data array and pagination meta
    */
   async listPosts(boardIdOrSlug, params) {
-    return this.http.get(`/public/boards/${boardIdOrSlug}/posts`, params);
+    return this.http.getList(`/public/boards/${boardIdOrSlug}/posts`, params);
   }
   /**
    * Get post by ID
@@ -340,9 +382,11 @@ var BoardsResource = class {
   // ============================================
   /**
    * List comments for a post
+   * @returns Array of comments (always an array, never null/undefined)
    */
   async listComments(postId) {
-    return this.http.get(`/public/posts/${postId}/comments`);
+    const response = await this.http.getList(`/public/posts/${postId}/comments`);
+    return response.data;
   }
   /**
    * Create comment on a post
@@ -371,9 +415,10 @@ var BlogResource = class {
   }
   /**
    * List blog posts
+   * @returns ListResponse with data array (always defined) and pagination meta
    */
   async list(params) {
-    return this.http.get("/public/blog", params);
+    return this.http.getList("/public/blog", params);
   }
   /**
    * Get blog post by slug
@@ -389,9 +434,10 @@ var BlogResource = class {
   }
   /**
    * Get featured blog posts
+   * @returns Array of featured posts (always an array, never null/undefined)
    */
   async featured(limit = 5) {
-    const response = await this.http.get("/public/blog", {
+    const response = await this.http.getList("/public/blog", {
       per_page: limit,
       featured: true
     });
@@ -399,42 +445,49 @@ var BlogResource = class {
   }
   /**
    * Get blog posts by category
+   * @returns ListResponse with data array and pagination meta
    */
   async byCategory(category, params) {
-    return this.http.get("/public/blog", {
+    return this.http.getList("/public/blog", {
       ...params,
       category
     });
   }
   /**
    * Get blog posts by tag
+   * @returns ListResponse with data array and pagination meta
    */
   async byTag(tag, params) {
-    return this.http.get("/public/blog", {
+    return this.http.getList("/public/blog", {
       ...params,
       tag
     });
   }
   /**
    * Search blog posts
+   * @returns ListResponse with data array and pagination meta
    */
   async search(query, params) {
-    return this.http.get("/public/blog", {
+    return this.http.getList("/public/blog", {
       ...params,
       search: query
     });
   }
   /**
    * Get blog categories
+   * @returns Array of category names (always an array)
    */
   async categories() {
-    return this.http.get("/public/blog/categories");
+    const response = await this.http.get("/public/blog/categories");
+    return Array.isArray(response) ? response : response?.data ?? [];
   }
   /**
    * Get blog tags
+   * @returns Array of tag names (always an array)
    */
   async tags() {
-    return this.http.get("/public/blog/tags");
+    const response = await this.http.get("/public/blog/tags");
+    return Array.isArray(response) ? response : response?.data ?? [];
   }
 };
 
@@ -445,9 +498,10 @@ var FormsResource = class {
   }
   /**
    * List all forms
+   * @returns ListResponse with data array and pagination meta
    */
   async list(params) {
-    return this.http.get("/public/forms", params);
+    return this.http.getList("/public/forms", params);
   }
   /**
    * Get form by ID or slug
@@ -466,9 +520,10 @@ var FormsResource = class {
   // ============================================
   /**
    * Get my form submissions
+   * @returns ListResponse with data array and pagination meta
    */
   async mySubmissions(params) {
-    return this.http.get("/form-submissions", params);
+    return this.http.getList("/form-submissions", params);
   }
   /**
    * Get specific submission
@@ -488,9 +543,10 @@ var ShopResource = class {
   // ============================================
   /**
    * List products
+   * @returns ListResponse with data array and pagination meta
    */
   async listProducts(params) {
-    return this.http.get("/public/products", params);
+    return this.http.getList("/public/products", params);
   }
   /**
    * Get product by ID or slug
@@ -500,9 +556,10 @@ var ShopResource = class {
   }
   /**
    * Get featured products
+   * @returns Array of featured products (always an array)
    */
   async featuredProducts(limit = 8) {
-    const response = await this.http.get("/public/products", {
+    const response = await this.http.getList("/public/products", {
       per_page: limit,
       is_featured: true
     });
@@ -510,9 +567,10 @@ var ShopResource = class {
   }
   /**
    * Search products
+   * @returns ListResponse with data array and pagination meta
    */
   async searchProducts(query, params) {
-    return this.http.get("/public/products", {
+    return this.http.getList("/public/products", {
       ...params,
       search: query
     });
@@ -522,9 +580,11 @@ var ShopResource = class {
   // ============================================
   /**
    * List product categories
+   * @returns Array of categories (always an array)
    */
   async listCategories() {
-    return this.http.get("/public/categories");
+    const response = await this.http.getList("/public/categories");
+    return response.data;
   }
   /**
    * Get category by ID or slug
@@ -534,9 +594,10 @@ var ShopResource = class {
   }
   /**
    * Get products in category
+   * @returns ListResponse with data array and pagination meta
    */
   async categoryProducts(categoryIdOrSlug, params) {
-    return this.http.get(`/public/categories/${categoryIdOrSlug}/products`, params);
+    return this.http.getList(`/public/categories/${categoryIdOrSlug}/products`, params);
   }
   // ============================================
   // Cart
@@ -576,9 +637,10 @@ var ShopResource = class {
   // ============================================
   /**
    * List my orders
+   * @returns ListResponse with data array and pagination meta
    */
   async listOrders(params) {
-    return this.http.get("/orders", params);
+    return this.http.getList("/orders", params);
   }
   /**
    * Get order by ID or order number
@@ -639,9 +701,11 @@ var ShopResource = class {
   }
   /**
    * Get available coupons for current user
+   * @returns Array of coupons (always an array)
    */
   async myCoupons() {
-    return this.http.get("/coupons");
+    const response = await this.http.getList("/coupons");
+    return response.data;
   }
 };
 
@@ -697,6 +761,7 @@ var EntitiesResource = class {
   // ============================================
   /**
    * List all active custom entities
+   * @returns Array of entities (always an array)
    *
    * @example
    * ```typescript
@@ -705,7 +770,8 @@ var EntitiesResource = class {
    * ```
    */
   async list() {
-    return this.http.get("/public/entities");
+    const response = await this.http.getList("/public/entities");
+    return response.data;
   }
   /**
    * Get entity schema by slug
@@ -724,6 +790,7 @@ var EntitiesResource = class {
   // ============================================
   /**
    * List records for an entity
+   * @returns ListResponse with data array and pagination meta
    *
    * @example
    * ```typescript
@@ -744,7 +811,7 @@ var EntitiesResource = class {
    * ```
    */
   async listRecords(slug, params) {
-    return this.http.get(`/public/entities/${slug}`, params);
+    return this.http.getList(`/public/entities/${slug}`, params);
   }
   /**
    * Get a single record by ID
@@ -863,6 +930,110 @@ var EntitiesResource = class {
   }
 };
 
+// src/resources/reservation.ts
+var ReservationResource = class {
+  constructor(http) {
+    this.http = http;
+  }
+  // ============================================
+  // Public Endpoints
+  // ============================================
+  /**
+   * Get reservation settings
+   * @returns Reservation settings for the tenant
+   */
+  async getSettings() {
+    return this.http.get("/public/reservations/settings");
+  }
+  /**
+   * List available services
+   * @returns Array of services (always an array)
+   */
+  async listServices() {
+    const response = await this.http.getList("/public/reservations/services");
+    return response.data;
+  }
+  /**
+   * List available staff members
+   * @param serviceId - Optional: filter staff by service
+   * @returns Array of staff members (always an array)
+   */
+  async listStaff(serviceId) {
+    const params = serviceId ? { service_id: serviceId } : void 0;
+    const response = await this.http.getList("/public/reservations/staffs", params);
+    return response.data;
+  }
+  /**
+   * Get available dates for booking
+   * @returns Array of available date strings (YYYY-MM-DD)
+   */
+  async getAvailableDates(params) {
+    const response = await this.http.get("/public/reservations/dates", params);
+    return Array.isArray(response) ? response : response?.data ?? [];
+  }
+  /**
+   * Get available time slots for a specific date
+   * @returns Array of available slots (always an array)
+   */
+  async getAvailableSlots(params) {
+    const response = await this.http.get("/public/reservations/slots", params);
+    return Array.isArray(response) ? response : response?.data ?? [];
+  }
+  // ============================================
+  // Protected Endpoints (requires auth)
+  // ============================================
+  /**
+   * Create a new reservation
+   * @returns Created reservation with payment info
+   */
+  async create(data) {
+    return this.http.post("/reservations", data);
+  }
+  /**
+   * List my reservations
+   * @returns ListResponse with reservations and pagination meta
+   */
+  async list(params) {
+    return this.http.getList("/reservations", params);
+  }
+  /**
+   * Get upcoming reservations
+   * @returns Array of upcoming reservations
+   */
+  async upcoming(limit = 10) {
+    const response = await this.http.getList("/reservations", {
+      upcoming: true,
+      per_page: limit
+    });
+    return response.data;
+  }
+  /**
+   * Get past reservations
+   * @returns Array of past reservations
+   */
+  async past(limit = 10) {
+    const response = await this.http.getList("/reservations", {
+      past: true,
+      per_page: limit
+    });
+    return response.data;
+  }
+  /**
+   * Get reservation by reservation number
+   */
+  async get(reservationNumber) {
+    return this.http.get(`/reservations/${reservationNumber}`);
+  }
+  /**
+   * Cancel a reservation
+   * @param reservationNumber - Reservation number to cancel
+   * @param reason - Optional cancellation reason
+   */
+  async cancel(reservationNumber, reason) {
+    return this.http.post(`/reservations/${reservationNumber}/cancel`, { reason });
+  }
+};
+
 // src/index.ts
 var Promptly = class {
   constructor(config) {
@@ -874,6 +1045,7 @@ var Promptly = class {
     this.shop = new ShopResource(this.http);
     this.media = new MediaResource(this.http);
     this.entities = new EntitiesResource(this.http);
+    this.reservation = new ReservationResource(this.http);
   }
   /**
    * Get site theme settings

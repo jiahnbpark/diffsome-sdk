@@ -16,6 +16,33 @@ export interface ApiResponse<T> {
   message?: string;
 }
 
+/**
+ * Pagination metadata
+ */
+export interface PaginationMeta {
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+  from: number | null;
+  to: number | null;
+}
+
+/**
+ * Unified list response - ALWAYS returns this structure for list APIs
+ * - data is ALWAYS an array (never null/undefined)
+ * - meta contains pagination info
+ */
+export interface ListResponse<T> {
+  /** Array of items - guaranteed to be an array (empty if no data) */
+  data: T[];
+  /** Pagination metadata */
+  meta: PaginationMeta;
+}
+
+/**
+ * @deprecated Use ListResponse<T> instead. Kept for backward compatibility.
+ */
 export interface PaginatedResponse<T> {
   data: T[];
   meta: {

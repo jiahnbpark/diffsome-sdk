@@ -34,6 +34,7 @@ import {
   ShopResource,
   MediaResource,
   EntitiesResource,
+  ReservationResource,
 } from './resources';
 
 export class Promptly {
@@ -60,6 +61,9 @@ export class Promptly {
   /** Custom entities - dynamic data structures created by AI */
   public readonly entities: EntitiesResource;
 
+  /** Reservations - booking services and time slots */
+  public readonly reservation: ReservationResource;
+
   constructor(config: PromptlyConfig) {
     this.http = new HttpClient(config);
 
@@ -71,6 +75,7 @@ export class Promptly {
     this.shop = new ShopResource(this.http);
     this.media = new MediaResource(this.http);
     this.entities = new EntitiesResource(this.http);
+    this.reservation = new ReservationResource(this.http);
   }
 
   /**
