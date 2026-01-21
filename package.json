@@ -33,7 +33,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/diffsome/sdk.git"
+    "url": "https://github.com/jiahnbpark/diffsome-sdk.git"
   },
   "devDependencies": {
     "openapi-typescript": "^7.10.1",
