@@ -20,21 +20,21 @@ export class FormsResource {
    * @returns ListResponse with data array and pagination meta
    */
   async list(params?: FormListParams): Promise<ListResponse<Form>> {
-    return this.http.getList<Form>('/public/forms', params);
+    return this.http.getList<Form>('/forms', params);
   }
 
   /**
    * Get form by ID or slug
    */
   async get(idOrSlug: number | string): Promise<Form> {
-    return this.http.get<Form>(`/public/forms/${idOrSlug}`);
+    return this.http.get<Form>(`/forms/${idOrSlug}`);
   }
 
   /**
    * Submit form data
    */
   async submit(formIdOrSlug: number | string, data: SubmitFormData): Promise<FormSubmission> {
-    return this.http.post<FormSubmission>(`/public/forms/${formIdOrSlug}/submit`, data);
+    return this.http.post<FormSubmission>(`/forms/${formIdOrSlug}/submit`, data);
   }
 
   // ============================================

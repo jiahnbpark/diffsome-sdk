@@ -31,10 +31,10 @@ function normalizeListResponse(response) {
   }
   return { data: [], meta: { ...DEFAULT_META } };
 }
-var PromptlyError = class extends Error {
+var DiffsomeError = class extends Error {
   constructor(message, status, errors) {
     super(message);
-    this.name = "PromptlyError";
+    this.name = "DiffsomeError";
     this.status = status;
     this.errors = errors;
   }
@@ -42,15 +42,62 @@ var PromptlyError = class extends Error {
 var HttpClient = class {
   constructor(config) {
     this.token = null;
+    this.apiKey = null;
+    this.cartSessionId = null;
+    // Token persistence options
+    this.persistToken = false;
+    this.storageType = "localStorage";
     this.tenantId = config.tenantId;
-    this.baseUrl = (config.baseUrl || "https://promptly.webbyon.com").replace(/\/$/, "");
+    this.baseUrl = (config.baseUrl || "https://diffsome.com").replace(/\/$/, "");
     this.timeout = config.timeout || 3e4;
+    this.apiKey = config.apiKey || null;
+    this.persistToken = config.persistToken ?? false;
+    this.storageType = config.storageType ?? "localStorage";
+    this.storageKey = config.storageKey ?? `diffsome_auth_token_${this.tenantId}`;
+    this.onAuthStateChange = config.onAuthStateChange;
+    if (typeof window !== "undefined" && window.localStorage) {
+      this.cartSessionId = localStorage.getItem(`diffsome_cart_session_${this.tenantId}`);
+    }
+    if (this.persistToken && typeof window !== "undefined") {
+      const storage = this.getStorage();
+      if (storage) {
+        const savedToken = storage.getItem(this.storageKey);
+        if (savedToken) {
+          this.token = savedToken;
+          this.onAuthStateChange?.(savedToken, void 0);
+        }
+      }
+    }
+    if (config.token) {
+      this.token = config.token;
+    }
+  }
+  /**
+   * Get the storage object based on config
+   */
+  getStorage() {
+    if (typeof window === "undefined") return null;
+    return this.storageType === "sessionStorage" ? window.sessionStorage : window.localStorage;
   }
   /**
    * Set authentication token
+   * If persistToken is enabled, automatically saves/removes from storage
+   * @param token - The auth token or null to clear
+   * @param user - The logged-in user (Member) for the callback
    */
-  setToken(token) {
+  setToken(token, user) {
     this.token = token;
+    if (this.persistToken) {
+      const storage = this.getStorage();
+      if (storage) {
+        if (token) {
+          storage.setItem(this.storageKey, token);
+        } else {
+          storage.removeItem(this.storageKey);
+        }
+      }
+    }
+    this.onAuthStateChange?.(token, user ?? null);
   }
   /**
    * Get current token
@@ -62,7 +109,55 @@ var HttpClient = class {
    * Check if authenticated
    */
   isAuthenticated() {
-    return this.token !== null;
+    return this.token !== null || this.apiKey !== null;
+  }
+  /**
+   * Set API key for server-to-server authentication
+   */
+  setApiKey(apiKey) {
+    this.apiKey = apiKey;
+  }
+  /**
+   * Get current API key
+   */
+  getApiKey() {
+    return this.apiKey;
+  }
+  /**
+   * Get the base URL with tenant path
+   */
+  getBaseUrl() {
+    return `${this.baseUrl}/api/${this.tenantId}`;
+  }
+  /**
+   * Get the download URL for a digital file
+   * Includes auth_token query parameter for authentication
+   */
+  getDownloadUrl(token) {
+    const url = `${this.baseUrl}/download/${this.tenantId}/${token}`;
+    if (this.token) {
+      return `${url}?auth_token=${encodeURIComponent(this.token)}`;
+    }
+    return url;
+  }
+  /**
+   * Set cart session ID (for guest cart persistence)
+   */
+  setCartSessionId(sessionId) {
+    this.cartSessionId = sessionId;
+    if (typeof window !== "undefined" && window.localStorage) {
+      if (sessionId) {
+        localStorage.setItem(`diffsome_cart_session_${this.tenantId}`, sessionId);
+      } else {
+        localStorage.removeItem(`diffsome_cart_session_${this.tenantId}`);
+      }
+    }
+  }
+  /**
+   * Get cart session ID
+   */
+  getCartSessionId() {
+    return this.cartSessionId;
   }
   /**
    * Build full URL with query params
@@ -80,6 +175,7 @@ var HttpClient = class {
   }
   /**
    * Build request headers
+   * Both API key and bearer token can be sent together
    */
   buildHeaders(customHeaders) {
     const headers = {
@@ -87,8 +183,14 @@ var HttpClient = class {
       "Accept": "application/json",
       ...customHeaders
     };
+    if (this.apiKey) {
+      headers["X-API-Key"] = this.apiKey;
+    }
     if (this.token) {
       headers["Authorization"] = `Bearer ${this.token}`;
+    }
+    if (this.cartSessionId) {
+      headers["X-Cart-Session"] = this.cartSessionId;
     }
     return headers;
   }
@@ -111,7 +213,7 @@ var HttpClient = class {
       clearTimeout(timeoutId);
       const data = await response.json();
       if (!response.ok) {
-        throw new PromptlyError(
+        throw new DiffsomeError(
           data.message || "Request failed",
           response.status,
           data.errors
@@ -120,16 +222,16 @@ var HttpClient = class {
       return data.data !== void 0 ? data.data : data;
     } catch (error) {
       clearTimeout(timeoutId);
-      if (error instanceof PromptlyError) {
+      if (error instanceof DiffsomeError) {
         throw error;
       }
       if (error instanceof Error) {
         if (error.name === "AbortError") {
-          throw new PromptlyError("Request timeout", 408);
+          throw new DiffsomeError("Request timeout", 408);
         }
-        throw new PromptlyError(error.message, 0);
+        throw new DiffsomeError(error.message, 0);
       }
-      throw new PromptlyError("Unknown error", 0);
+      throw new DiffsomeError("Unknown error", 0);
     }
   }
   /**
@@ -167,8 +269,8 @@ var HttpClient = class {
   /**
    * DELETE request
    */
-  delete(endpoint) {
-    return this.request(endpoint, { method: "DELETE" });
+  delete(endpoint, params) {
+    return this.request(endpoint, { method: "DELETE", params });
   }
   /**
    * Upload file
@@ -180,6 +282,9 @@ var HttpClient = class {
     const headers = {
       "Accept": "application/json"
     };
+    if (this.apiKey) {
+      headers["X-API-Key"] = this.apiKey;
+    }
     if (this.token) {
       headers["Authorization"] = `Bearer ${this.token}`;
     }
@@ -195,7 +300,7 @@ var HttpClient = class {
       clearTimeout(timeoutId);
       const data = await response.json();
       if (!response.ok) {
-        throw new PromptlyError(
+        throw new DiffsomeError(
           data.message || "Upload failed",
           response.status,
           data.errors
@@ -204,16 +309,16 @@ var HttpClient = class {
       return data.data !== void 0 ? data.data : data;
     } catch (error) {
       clearTimeout(timeoutId);
-      if (error instanceof PromptlyError) {
+      if (error instanceof DiffsomeError) {
         throw error;
       }
       if (error instanceof Error) {
         if (error.name === "AbortError") {
-          throw new PromptlyError("Upload timeout", 408);
+          throw new DiffsomeError("Upload timeout", 408);
         }
-        throw new PromptlyError(error.message, 0);
+        throw new DiffsomeError(error.message, 0);
       }
-      throw new PromptlyError("Unknown error", 0);
+      throw new DiffsomeError("Unknown error", 0);
     }
   }
 };
@@ -225,21 +330,23 @@ var AuthResource = class {
   }
   /**
    * Login with email and password
+   * Token is automatically saved if persistToken is enabled
    */
   async login(credentials) {
     const response = await this.http.post("/auth/login", credentials);
     if (response.token) {
-      this.http.setToken(response.token);
+      this.http.setToken(response.token, response.user);
     }
     return response;
   }
   /**
    * Register new member
+   * Token is automatically saved if persistToken is enabled
    */
   async register(data) {
     const response = await this.http.post("/auth/register", data);
     if (response.token) {
-      this.http.setToken(response.token);
+      this.http.setToken(response.token, response.user);
     }
     return response;
   }
@@ -281,7 +388,7 @@ var AuthResource = class {
    * Get available social login providers
    */
   async getSocialProviders() {
-    return this.http.get("/auth/social");
+    return this.http.get("/auth/social/providers");
   }
   /**
    * Get social login redirect URL
@@ -291,11 +398,12 @@ var AuthResource = class {
   }
   /**
    * Handle social login callback
+   * Token is automatically saved if persistToken is enabled
    */
   async socialCallback(provider, code) {
     const response = await this.http.post(`/auth/social/${provider}/callback`, { code });
     if (response.token) {
-      this.http.setToken(response.token);
+      this.http.setToken(response.token, response.user);
     }
     return response;
   }
@@ -332,29 +440,29 @@ var BoardsResource = class {
    * @returns ListResponse with data array (always defined) and pagination meta
    */
   async list(params) {
-    return this.http.getList("/public/boards", params);
+    return this.http.getList("/boards", params);
   }
   /**
    * Get board by ID or slug
    */
   async get(idOrSlug) {
-    return this.http.get(`/public/boards/${idOrSlug}`);
+    return this.http.get(`/boards/${idOrSlug}`);
   }
   // ============================================
-  // Posts (Public)
+  // Posts
   // ============================================
   /**
    * List posts in a board
    * @returns ListResponse with data array and pagination meta
    */
   async listPosts(boardIdOrSlug, params) {
-    return this.http.getList(`/public/boards/${boardIdOrSlug}/posts`, params);
+    return this.http.getList(`/boards/${boardIdOrSlug}/posts`, params);
   }
   /**
    * Get post by ID
    */
   async getPost(postId) {
-    return this.http.get(`/public/posts/${postId}`);
+    return this.http.get(`/posts/${postId}`);
   }
   // ============================================
   // Posts (Protected - requires auth)
@@ -385,7 +493,7 @@ var BoardsResource = class {
    * @returns Array of comments (always an array, never null/undefined)
    */
   async listComments(postId) {
-    const response = await this.http.getList(`/public/posts/${postId}/comments`);
+    const response = await this.http.getList(`/posts/${postId}/comments`);
     return response.data;
   }
   /**
@@ -418,26 +526,26 @@ var BlogResource = class {
    * @returns ListResponse with data array (always defined) and pagination meta
    */
   async list(params) {
-    return this.http.getList("/public/blog", params);
+    return this.http.getList("/blog", params);
   }
   /**
    * Get blog post by slug
    */
   async get(slug) {
-    return this.http.get(`/public/blog/${slug}`);
+    return this.http.get(`/blog/${slug}`);
   }
   /**
    * Get blog post by ID
    */
   async getById(id) {
-    return this.http.get(`/public/blog/id/${id}`);
+    return this.http.get(`/blog/id/${id}`);
   }
   /**
    * Get featured blog posts
    * @returns Array of featured posts (always an array, never null/undefined)
    */
   async featured(limit = 5) {
-    const response = await this.http.getList("/public/blog", {
+    const response = await this.http.getList("/blog", {
       per_page: limit,
       featured: true
     });
@@ -448,7 +556,7 @@ var BlogResource = class {
    * @returns ListResponse with data array and pagination meta
    */
   async byCategory(category, params) {
-    return this.http.getList("/public/blog", {
+    return this.http.getList("/blog", {
       ...params,
       category
     });
@@ -458,7 +566,7 @@ var BlogResource = class {
    * @returns ListResponse with data array and pagination meta
    */
   async byTag(tag, params) {
-    return this.http.getList("/public/blog", {
+    return this.http.getList("/blog", {
       ...params,
       tag
     });
@@ -468,17 +576,17 @@ var BlogResource = class {
    * @returns ListResponse with data array and pagination meta
    */
   async search(query, params) {
-    return this.http.getList("/public/blog", {
+    return this.http.getList("/blog", {
       ...params,
       search: query
     });
   }
   /**
    * Get blog categories
-   * @returns Array of category names (always an array)
+   * @returns Array of blog categories with details
    */
   async categories() {
-    const response = await this.http.get("/public/blog/categories");
+    const response = await this.http.get("/blog/categories");
     return Array.isArray(response) ? response : response?.data ?? [];
   }
   /**
@@ -486,8 +594,69 @@ var BlogResource = class {
    * @returns Array of tag names (always an array)
    */
   async tags() {
-    const response = await this.http.get("/public/blog/tags");
+    const response = await this.http.get("/blog/tags");
     return Array.isArray(response) ? response : response?.data ?? [];
+  }
+};
+
+// src/resources/comments.ts
+var CommentsResource = class {
+  constructor(http) {
+    this.http = http;
+  }
+  /**
+   * Get comments for a board post
+   */
+  async boardPost(postId, params) {
+    return this.http.get(`/posts/${postId}/comments`, params);
+  }
+  /**
+   * Create a comment on a board post
+   */
+  async createBoardPost(postId, data) {
+    return this.http.post(`/posts/${postId}/comments`, data);
+  }
+  /**
+   * Get comments for a blog post
+   */
+  async blogPost(slug, params) {
+    return this.http.get(`/blog/${slug}/comments`, params);
+  }
+  /**
+   * Create a comment on a blog post
+   */
+  async createBlogPost(slug, data) {
+    return this.http.post(`/blog/${slug}/comments`, data);
+  }
+  /**
+   * Get standalone comments (guestbook, feedback, etc.)
+   */
+  async standalone(pageSlug, params) {
+    return this.http.get(`/comments/${pageSlug}`, params);
+  }
+  /**
+   * Create a standalone comment
+   */
+  async createStandalone(pageSlug, data) {
+    return this.http.post(`/comments/${pageSlug}`, data);
+  }
+  /**
+   * Update a comment
+   */
+  async update(commentId, data) {
+    return this.http.put(`/comments/${commentId}`, data);
+  }
+  /**
+   * Delete a comment
+   */
+  async delete(commentId, data) {
+    return this.http.delete(`/comments/${commentId}`, data);
+  }
+  /**
+   * Like a comment
+   */
+  async like(commentId) {
+    return this.http.post(`/comments/${commentId}/like`);
   }
 };
 
@@ -501,19 +670,19 @@ var FormsResource = class {
    * @returns ListResponse with data array and pagination meta
    */
   async list(params) {
-    return this.http.getList("/public/forms", params);
+    return this.http.getList("/forms", params);
   }
   /**
    * Get form by ID or slug
    */
   async get(idOrSlug) {
-    return this.http.get(`/public/forms/${idOrSlug}`);
+    return this.http.get(`/forms/${idOrSlug}`);
   }
   /**
    * Submit form data
    */
   async submit(formIdOrSlug, data) {
-    return this.http.post(`/public/forms/${formIdOrSlug}/submit`, data);
+    return this.http.post(`/forms/${formIdOrSlug}/submit`, data);
   }
   // ============================================
   // Protected endpoints (requires auth)
@@ -546,20 +715,20 @@ var ShopResource = class {
    * @returns ListResponse with data array and pagination meta
    */
   async listProducts(params) {
-    return this.http.getList("/public/products", params);
+    return this.http.getList("/products", params);
   }
   /**
    * Get product by ID or slug
    */
   async getProduct(idOrSlug) {
-    return this.http.get(`/public/products/${idOrSlug}`);
+    return this.http.get(`/products/${idOrSlug}`);
   }
   /**
    * Get featured products
    * @returns Array of featured products (always an array)
    */
   async featuredProducts(limit = 8) {
-    const response = await this.http.getList("/public/products", {
+    const response = await this.http.getList("/products", {
       per_page: limit,
       is_featured: true
     });
@@ -570,7 +739,7 @@ var ShopResource = class {
    * @returns ListResponse with data array and pagination meta
    */
   async searchProducts(query, params) {
-    return this.http.getList("/public/products", {
+    return this.http.getList("/products", {
       ...params,
       search: query
     });
@@ -580,57 +749,70 @@ var ShopResource = class {
   // ============================================
   /**
    * List product categories
-   * @returns Array of categories (always an array)
+   * @returns ListResponse with data array and pagination meta
    */
   async listCategories() {
-    const response = await this.http.getList("/public/categories");
-    return response.data;
+    return this.http.getList("/categories");
   }
   /**
    * Get category by ID or slug
    */
   async getCategory(idOrSlug) {
-    return this.http.get(`/public/categories/${idOrSlug}`);
+    return this.http.get(`/categories/${idOrSlug}`);
   }
   /**
    * Get products in category
    * @returns ListResponse with data array and pagination meta
    */
   async categoryProducts(categoryIdOrSlug, params) {
-    return this.http.getList(`/public/categories/${categoryIdOrSlug}/products`, params);
+    return this.http.getList(`/categories/${categoryIdOrSlug}/products`, params);
   }
   // ============================================
   // Cart
   // ============================================
   /**
+   * Save cart session ID from response (for guest cart persistence)
+   */
+  saveCartSession(cart) {
+    if (cart.session_id) {
+      this.http.setCartSessionId(cart.session_id);
+    }
+    return cart;
+  }
+  /**
    * Get current cart
    */
   async getCart() {
-    return this.http.get("/cart");
+    const cart = await this.http.get("/cart");
+    return this.saveCartSession(cart);
   }
   /**
    * Add item to cart
    */
   async addToCart(data) {
-    return this.http.post("/cart/items", data);
+    const cart = await this.http.post("/cart/items", data);
+    return this.saveCartSession(cart);
   }
   /**
    * Update cart item quantity
    */
   async updateCartItem(itemId, data) {
-    return this.http.put(`/cart/items/${itemId}`, data);
+    const cart = await this.http.put(`/cart/items/${itemId}`, data);
+    return this.saveCartSession(cart);
   }
   /**
    * Remove item from cart
    */
   async removeFromCart(itemId) {
-    return this.http.delete(`/cart/items/${itemId}`);
+    const cart = await this.http.delete(`/cart/items/${itemId}`);
+    return this.saveCartSession(cart);
   }
   /**
    * Clear entire cart
    */
   async clearCart() {
-    return this.http.delete("/cart");
+    await this.http.delete("/cart");
+    this.http.setCartSessionId(null);
   }
   // ============================================
   // Orders (Protected)
@@ -670,19 +852,78 @@ var ShopResource = class {
     return this.http.get(`/orders/${orderId}/payment`);
   }
   /**
-   * Prepare payment (get payment key)
+   * Get payment status (available payment methods)
+   */
+  async getPaymentStatus() {
+    return this.http.get("/payments/status");
+  }
+  // ============================================
+  // Toss Payments
+  // ============================================
+  /**
+   * Prepare Toss payment (get client key and payment info)
+   */
+  async tossPaymentReady(data) {
+    return this.http.post("/payments/toss/ready", data);
+  }
+  /**
+   * Confirm Toss payment (after redirect)
+   */
+  async tossPaymentConfirm(data) {
+    return this.http.post("/payments/toss/confirm", data);
+  }
+  /**
+   * Cancel Toss payment
+   */
+  async tossPaymentCancel(orderNumber, cancelReason, cancelAmount) {
+    await this.http.post("/payments/toss/cancel", {
+      order_number: orderNumber,
+      cancel_reason: cancelReason,
+      cancel_amount: cancelAmount
+    });
+  }
+  // ============================================
+  // Stripe Payments
+  // ============================================
+  /**
+   * Create Stripe Checkout Session
+   */
+  async stripeCheckout(data) {
+    return this.http.post("/payments/stripe/checkout", data);
+  }
+  /**
+   * Verify Stripe payment (after redirect)
+   */
+  async stripeVerify(data) {
+    return this.http.post("/payments/stripe/verify", data);
+  }
+  /**
+   * Refund Stripe payment
+   */
+  async stripeRefund(orderNumber, reason, amount) {
+    await this.http.post("/payments/stripe/refund", {
+      order_number: orderNumber,
+      reason,
+      amount
+    });
+  }
+  // ============================================
+  // Legacy Payment Methods (deprecated)
+  // ============================================
+  /**
+   * @deprecated Use tossPaymentReady instead
    */
   async preparePayment(data) {
     return this.http.post(`/payments/ready`, data);
   }
   /**
-   * Confirm payment (after Toss redirect)
+   * @deprecated Use tossPaymentConfirm instead
    */
   async confirmPayment(data) {
     return this.http.post("/payments/confirm", data);
   }
   /**
-   * Cancel payment
+   * @deprecated Use tossPaymentCancel instead
    */
   async cancelPayment(paymentId, data) {
     return this.http.post(`/payments/${paymentId}/cancel`, data);
@@ -706,6 +947,308 @@ var ShopResource = class {
   async myCoupons() {
     const response = await this.http.getList("/coupons");
     return response.data;
+  }
+  // ============================================
+  // Product Reviews
+  // ============================================
+  /**
+   * Get reviews for a product
+   * @param productSlug - Product slug
+   * @param params - Optional list params (rating, sort, per_page)
+   * @returns Reviews with stats
+   */
+  async getProductReviews(productSlug, params) {
+    return this.http.get(`/products/${productSlug}/reviews`, params);
+  }
+  /**
+   * Check if current user can review a product
+   * Requires: logged in + purchased the product + not already reviewed
+   */
+  async canReviewProduct(productSlug) {
+    const response = await this.http.get(
+      `/products/${productSlug}/reviews/can-review`
+    );
+    return response;
+  }
+  /**
+   * Create a product review (requires purchase)
+   */
+  async createReview(productSlug, data) {
+    const response = await this.http.post(
+      `/products/${productSlug}/reviews`,
+      data
+    );
+    return response.data;
+  }
+  /**
+   * Update your own review
+   */
+  async updateReview(reviewId, data) {
+    const response = await this.http.put(
+      `/reviews/${reviewId}`,
+      data
+    );
+    return response.data;
+  }
+  /**
+   * Delete your own review
+   */
+  async deleteReview(reviewId) {
+    await this.http.delete(`/reviews/${reviewId}`);
+  }
+  /**
+   * Mark a review as helpful
+   */
+  async markReviewHelpful(reviewId) {
+    return this.http.post(`/reviews/${reviewId}/helpful`);
+  }
+  /**
+   * Get my reviews
+   * @returns Array of reviews written by the current user
+   */
+  async myReviews(params) {
+    return this.http.getList("/my/reviews", params);
+  }
+  // ============================================
+  // Wishlist
+  // ============================================
+  /**
+   * Get wishlist items
+   * Requires authentication
+   */
+  async getWishlist(params) {
+    return this.http.getList("/wishlist", params);
+  }
+  /**
+   * Add product to wishlist
+   * Requires authentication
+   */
+  async addToWishlist(data) {
+    return this.http.post("/wishlist", data);
+  }
+  /**
+   * Remove item from wishlist
+   * Requires authentication
+   */
+  async removeFromWishlist(wishlistId) {
+    await this.http.delete(`/wishlist/${wishlistId}`);
+  }
+  /**
+   * Toggle wishlist (add if not in wishlist, remove if in wishlist)
+   * Requires authentication
+   */
+  async toggleWishlist(productId, variantId) {
+    return this.http.post("/wishlist/toggle", {
+      product_id: productId,
+      variant_id: variantId
+    });
+  }
+  /**
+   * Check if product is in wishlist
+   */
+  async isInWishlist(productId, variantId) {
+    const result = await this.http.get("/wishlist/check", {
+      product_id: productId,
+      variant_id: variantId
+    });
+    return result.in_wishlist;
+  }
+  /**
+   * Check multiple products' wishlist status
+   * Useful for product list pages
+   */
+  async checkWishlistBulk(productIds) {
+    const result = await this.http.post("/wishlist/check-bulk", {
+      product_ids: productIds
+    });
+    return result.items;
+  }
+  /**
+   * Get wishlist count
+   */
+  async getWishlistCount() {
+    const result = await this.http.get("/wishlist/count");
+    return result.count;
+  }
+  /**
+   * Move wishlist items to cart
+   * @param wishlistIds - Optional array of wishlist item IDs to move. If empty, moves all items.
+   */
+  async moveWishlistToCart(wishlistIds) {
+    return this.http.post("/wishlist/move-to-cart", {
+      wishlist_ids: wishlistIds
+    });
+  }
+  /**
+   * Update wishlist item note
+   */
+  async updateWishlistNote(wishlistId, note) {
+    return this.http.put(`/wishlist/${wishlistId}`, { note });
+  }
+  /**
+   * Get product's wishlist count (how many users added this product)
+   */
+  async getProductWishlistCount(productSlug) {
+    const result = await this.http.get(`/products/${productSlug}/wishlist-count`);
+    return result.count;
+  }
+  // ============================================
+  // Digital Downloads
+  // ============================================
+  /**
+   * Get my download links
+   * Requires authentication
+   */
+  async getMyDownloads() {
+    const result = await this.http.get("/my/downloads");
+    return result.downloads;
+  }
+  /**
+   * Get download links for a specific order
+   * Requires authentication
+   */
+  async getOrderDownloads(orderNumber) {
+    const result = await this.http.get(
+      `/orders/${orderNumber}/downloads`
+    );
+    return result.downloads;
+  }
+  /**
+   * Get download file URL
+   * Returns the web download URL that handles server-side authentication
+   * User must be logged in via session (not just API token)
+   */
+  getDownloadUrl(token) {
+    return this.http.getDownloadUrl(token);
+  }
+  /**
+   * Get download link info (without triggering download)
+   * Requires authentication
+   */
+  async getDownloadInfo(token) {
+    const result = await this.http.get(`/downloads/${token}/info`);
+    return result.download;
+  }
+  // ============================================
+  // Subscriptions
+  // ============================================
+  /**
+   * Get my subscriptions
+   * Requires authentication
+   */
+  async getSubscriptions() {
+    const result = await this.http.get("/subscriptions");
+    return result.subscriptions;
+  }
+  /**
+   * Get subscription by ID
+   * Requires authentication
+   */
+  async getSubscription(id) {
+    const result = await this.http.get(`/subscriptions/${id}`);
+    return result.subscription;
+  }
+  /**
+   * Create a new subscription
+   * Requires Stripe payment method ID
+   * Requires authentication
+   */
+  async createSubscription(data) {
+    return this.http.post("/subscriptions", data);
+  }
+  /**
+   * Cancel subscription
+   * @param immediately - If true, cancel immediately. Otherwise, cancel at end of billing period.
+   * Requires authentication
+   */
+  async cancelSubscription(id, immediately = false) {
+    const result = await this.http.post(
+      `/subscriptions/${id}/cancel`,
+      { immediately }
+    );
+    return result.subscription;
+  }
+  /**
+   * Pause subscription
+   * Requires authentication
+   */
+  async pauseSubscription(id) {
+    const result = await this.http.post(
+      `/subscriptions/${id}/pause`
+    );
+    return result.subscription;
+  }
+  /**
+   * Resume paused subscription
+   * Requires authentication
+   */
+  async resumeSubscription(id) {
+    const result = await this.http.post(
+      `/subscriptions/${id}/resume`
+    );
+    return result.subscription;
+  }
+  /**
+   * Create Stripe Setup Intent for adding payment method
+   * Use with Stripe.js to collect card details
+   * Requires authentication
+   */
+  async createSetupIntent() {
+    return this.http.post("/subscriptions/setup-intent");
+  }
+  /**
+   * Create Stripe Checkout Session for subscription
+   * Redirects to Stripe Checkout page
+   * Requires authentication
+   */
+  async createSubscriptionCheckout(data) {
+    return this.http.post("/subscriptions/checkout", data);
+  }
+  /**
+   * Verify Stripe Checkout Session for subscription
+   * Call after returning from Stripe Checkout
+   * Requires authentication
+   */
+  async verifySubscriptionCheckout(session_id) {
+    return this.http.post("/subscriptions/verify", { session_id });
+  }
+  // ============================================
+  // Bundle Products
+  // ============================================
+  /**
+   * Get bundle items and pricing
+   * Returns all products in the bundle with calculated pricing
+   */
+  async getBundleItems(productSlug) {
+    const result = await this.http.get(`/products/${productSlug}/bundle-items`);
+    return result.bundle;
+  }
+  // ============================================
+  // Product Type Filters
+  // ============================================
+  /**
+   * List products with type filter
+   */
+  async listProductsByType(type, params) {
+    return this.http.getList("/products", { ...params, type });
+  }
+  /**
+   * Get digital products
+   */
+  async getDigitalProducts(params) {
+    return this.listProductsByType("digital", params);
+  }
+  /**
+   * Get subscription products
+   */
+  async getSubscriptionProducts(params) {
+    return this.listProductsByType("subscription", params);
+  }
+  /**
+   * Get bundle products
+   */
+  async getBundleProducts(params) {
+    return this.listProductsByType("bundle", params);
   }
 };
 
@@ -757,36 +1300,101 @@ var EntitiesResource = class {
     this.http = http;
   }
   // ============================================
-  // Entities (Public)
+  // Entity Definitions CRUD
   // ============================================
   /**
-   * List all active custom entities
-   * @returns Array of entities (always an array)
+   * List all custom entities
+   * @returns Array of entities
    *
    * @example
    * ```typescript
    * const entities = await client.entities.list();
-   * // [{ id: 1, name: 'Customer', slug: 'customer', ... }]
+   * // [{ id: 1, name: 'Customer', slug: 'customer', records_count: 150, ... }]
    * ```
    */
   async list() {
-    const response = await this.http.getList("/public/entities");
+    const response = await this.http.getList("/entities");
     return response.data;
   }
   /**
-   * Get entity schema by slug
+   * Create a new entity definition
    *
    * @example
    * ```typescript
-   * const schema = await client.entities.getSchema('customer');
-   * // { fields: [{ name: 'company', label: '회사명', type: 'text', ... }] }
+   * const entity = await client.entities.create({
+   *   name: '고객',
+   *   slug: 'customers',  // optional, auto-generated from name
+   *   description: '고객 관리',
+   *   schema: {
+   *     fields: [
+   *       { name: 'company', label: '회사명', type: 'text', required: true },
+   *       { name: 'email', label: '이메일', type: 'email', required: true },
+   *       { name: 'status', label: '상태', type: 'select', options: [
+   *         { value: 'active', label: '활성' },
+   *         { value: 'inactive', label: '비활성' }
+   *       ]}
+   *     ]
+   *   },
+   *   icon: 'users'
+   * });
    * ```
    */
+  async create(data) {
+    return this.http.post("/entities", data);
+  }
+  /**
+   * Get entity definition by slug (includes schema)
+   *
+   * @example
+   * ```typescript
+   * const entity = await client.entities.get('customers');
+   * console.log(entity.schema.fields);
+   * ```
+   */
+  async get(slug) {
+    return this.http.get(`/entities/${slug}`);
+  }
+  /**
+   * Update an entity definition
+   *
+   * @example
+   * ```typescript
+   * const updated = await client.entities.update('customers', {
+   *   name: '고객사',
+   *   description: '고객사 관리'
+   * });
+   * ```
+   */
+  async update(slug, data) {
+    return this.http.put(`/entities/${slug}`, data);
+  }
+  /**
+   * Delete an entity definition
+   * If entity has records, use force=true to delete anyway
+   *
+   * @example
+   * ```typescript
+   * // Will fail if entity has records
+   * await client.entities.delete('customers');
+   *
+   * // Force delete with all records
+   * await client.entities.delete('customers', true);
+   * ```
+   */
+  async delete(slug, force = false) {
+    const params = force ? { force: "true" } : void 0;
+    return this.http.delete(`/entities/${slug}`, params);
+  }
+  /**
+   * Get entity schema (convenience method)
+   * @deprecated Use get(slug) instead - it includes schema
+   */
   async getSchema(slug) {
-    return this.http.get(`/public/entities/${slug}/schema`);
+    const entity = await this.get(slug);
+    return entity.schema;
   }
   // ============================================
-  // Records (Public Read)
+  // Records CRUD
   // ============================================
   /**
    * List records for an entity
@@ -795,82 +1403,79 @@ var EntitiesResource = class {
    * @example
    * ```typescript
    * // Basic listing
-   * const customers = await client.entities.listRecords('customer');
+   * const customers = await client.entities.listRecords('customers');
    *
-   * // With pagination
-   * const customers = await client.entities.listRecords('customer', {
+   * // With pagination and search
+   * const customers = await client.entities.listRecords('customers', {
    *   page: 1,
    *   per_page: 20,
-   *   status: 'active',
+   *   search: 'ACME',
+   *   sort: 'company',
+   *   dir: 'asc'
    * });
    *
-   * // With filtering by data fields
-   * const vipCustomers = await client.entities.listRecords('customer', {
-   *   'data.tier': 'vip',
+   * // With filtering
+   * const vipCustomers = await client.entities.listRecords('customers', {
+   *   filters: JSON.stringify({ tier: 'vip' })
    * });
    * ```
    */
   async listRecords(slug, params) {
-    return this.http.getList(`/public/entities/${slug}`, params);
+    return this.http.getList(`/entities/${slug}/records`, params);
   }
   /**
    * Get a single record by ID
    *
    * @example
    * ```typescript
-   * const customer = await client.entities.getRecord('customer', 1);
+   * const customer = await client.entities.getRecord('customers', 1);
    * console.log(customer.data.company); // 'ABC Corp'
    * ```
    */
   async getRecord(slug, id) {
-    return this.http.get(`/public/entities/${slug}/${id}`);
+    return this.http.get(`/entities/${slug}/records/${id}`);
   }
-  // ============================================
-  // Records (Protected - requires auth)
-  // ============================================
   /**
    * Create a new record
+   * Request body fields are defined by entity schema
    *
    * @example
    * ```typescript
-   * const newCustomer = await client.entities.createRecord('customer', {
-   *   data: {
-   *     company: 'ABC Corp',
-   *     email: 'contact@abc.com',
-   *     tier: 'standard',
-   *   },
-   *   status: 'active',
+   * const newCustomer = await client.entities.createRecord('customers', {
+   *   company: 'ABC Corp',
+   *   email: 'contact@abc.com',
+   *   tier: 'standard',
    * });
    * ```
    */
   async createRecord(slug, data) {
-    return this.http.post(`/entities/${slug}`, data);
+    return this.http.post(`/entities/${slug}/records`, data);
   }
   /**
    * Update a record
+   * Only provided fields will be updated, existing data is preserved
    *
    * @example
    * ```typescript
-   * const updated = await client.entities.updateRecord('customer', 1, {
-   *   data: {
-   *     tier: 'vip',
-   *   },
+   * const updated = await client.entities.updateRecord('customers', 1, {
+   *   tier: 'vip',
+   *   email: 'new@abc.com'
    * });
    * ```
    */
   async updateRecord(slug, id, data) {
-    return this.http.put(`/entities/${slug}/${id}`, data);
+    return this.http.put(`/entities/${slug}/records/${id}`, data);
   }
   /**
    * Delete a record
    *
    * @example
    * ```typescript
-   * await client.entities.deleteRecord('customer', 1);
+   * await client.entities.deleteRecord('customers', 1);
    * ```
    */
   async deleteRecord(slug, id) {
-    return this.http.delete(`/entities/${slug}/${id}`);
+    return this.http.delete(`/entities/${slug}/records/${id}`);
   }
   // ============================================
   // Helper Methods
@@ -880,7 +1485,7 @@ var EntitiesResource = class {
    *
    * @example
    * ```typescript
-   * const record = await client.entities.getRecord('customer', 1);
+   * const record = await client.entities.getRecord('customers', 1);
    * const company = client.entities.getValue(record, 'company');
    * ```
    */
@@ -898,7 +1503,7 @@ var EntitiesResource = class {
    *   tier: 'standard' | 'vip';
    * }
    *
-   * const customers = client.entities.typed<Customer>('customer');
+   * const customers = client.entities.typed<Customer>('customers');
    * const list = await customers.list(); // Typed records
    * const record = await customers.get(1);
    * console.log(record.data.company); // TypeScript knows this is string
@@ -917,12 +1522,12 @@ var EntitiesResource = class {
         const record = await this.getRecord(slug, id);
         return record;
       },
-      create: async (data, status) => {
-        const record = await this.createRecord(slug, { data, status });
+      create: async (data) => {
+        const record = await this.createRecord(slug, data);
         return record;
       },
-      update: async (id, data, status) => {
-        const record = await this.updateRecord(slug, id, { data, status });
+      update: async (id, data) => {
+        const record = await this.updateRecord(slug, id, data);
         return record;
       },
       delete: (id) => this.deleteRecord(slug, id)
@@ -943,14 +1548,14 @@ var ReservationResource = class {
    * @returns Reservation settings for the tenant
    */
   async getSettings() {
-    return this.http.get("/public/reservations/settings");
+    return this.http.get("/reservation/settings");
   }
   /**
    * List available services
    * @returns Array of services (always an array)
    */
   async listServices() {
-    const response = await this.http.getList("/public/reservations/services");
+    const response = await this.http.getList("/reservation/services");
     return response.data;
   }
   /**
@@ -960,7 +1565,7 @@ var ReservationResource = class {
    */
   async listStaff(serviceId) {
     const params = serviceId ? { service_id: serviceId } : void 0;
-    const response = await this.http.getList("/public/reservations/staffs", params);
+    const response = await this.http.getList("/reservation/staffs", params);
     return response.data;
   }
   /**
@@ -968,7 +1573,7 @@ var ReservationResource = class {
    * @returns Array of available date strings (YYYY-MM-DD)
    */
   async getAvailableDates(params) {
-    const response = await this.http.get("/public/reservations/dates", params);
+    const response = await this.http.get("/reservation/available-dates", params);
     return Array.isArray(response) ? response : response?.data ?? [];
   }
   /**
@@ -976,7 +1581,7 @@ var ReservationResource = class {
    * @returns Array of available slots (always an array)
    */
   async getAvailableSlots(params) {
-    const response = await this.http.get("/public/reservations/slots", params);
+    const response = await this.http.get("/reservation/available-slots", params);
     return Array.isArray(response) ? response : response?.data ?? [];
   }
   // ============================================
@@ -1035,29 +1640,21 @@ var ReservationResource = class {
 };
 
 // src/index.ts
-var Promptly = class {
+var Diffsome = class {
   constructor(config) {
+    if (!config.apiKey) {
+      throw new Error("API key is required. Get your API key from Dashboard > Settings > API Tokens");
+    }
     this.http = new HttpClient(config);
     this.auth = new AuthResource(this.http);
     this.boards = new BoardsResource(this.http);
     this.blog = new BlogResource(this.http);
+    this.comments = new CommentsResource(this.http);
     this.forms = new FormsResource(this.http);
     this.shop = new ShopResource(this.http);
     this.media = new MediaResource(this.http);
     this.entities = new EntitiesResource(this.http);
     this.reservation = new ReservationResource(this.http);
-  }
-  /**
-   * Get site theme settings
-   */
-  async getTheme() {
-    return this.http.get("/public/theme");
-  }
-  /**
-   * Get site settings
-   */
-  async getSettings() {
-    return this.http.get("/public/settings");
   }
   /**
    * Check if user is authenticated
@@ -1077,10 +1674,36 @@ var Promptly = class {
   getToken() {
     return this.auth.getToken();
   }
+  /**
+   * Set API key for server-to-server authentication
+   * Alternative to user token authentication
+   *
+   * @example
+   * ```typescript
+   * const client = new Diffsome({
+   *   tenantId: 'my-site',
+   *   apiKey: 'pky_your_api_key_here',
+   * });
+   *
+   * // Or set later
+   * client.setApiKey('pky_your_api_key_here');
+   * ```
+   */
+  setApiKey(apiKey) {
+    this.http.setApiKey(apiKey);
+  }
+  /**
+   * Get current API key
+   */
+  getApiKey() {
+    return this.http.getApiKey();
+  }
 };
-var index_default = Promptly;
+var index_default = Diffsome;
 export {
-  Promptly,
-  PromptlyError,
+  Diffsome,
+  DiffsomeError,
+  Diffsome as Promptly,
+  DiffsomeError as PromptlyError,
   index_default as default
 };

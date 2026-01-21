@@ -1,33 +1,708 @@
-# @back23/promptly-sdk
+# @diffsome/sdk
 
-Promptly AI CMS SDK for JavaScript/TypeScript
+Diffsome Official SDK - Headless CMS + E-commerce + AI platform.
+
+**Version: 3.2.0**
 
 ## Installation
 
 ```bash
-npm install @back23/promptly-sdk
+npm install @diffsome/sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import { Promptly } from '@back23/promptly-sdk';
+import { Diffsome } from '@diffsome/sdk';
 
-const client = new Promptly({
+const client = new Diffsome({
+  tenantId: 'your-tenant-id',
+  apiKey: 'pky_xxxxxxxxxxxxxxxx',  // Required - Dashboard > Settings > API Tokens
+  baseUrl: 'https://diffsome.com',  // Optional
+
+  // Token auto-save (persistent login)
+  persistToken: true,
+  storageType: 'localStorage',  // or 'sessionStorage'
+  onAuthStateChange: (token, user) => {
+    console.log('Auth changed:', user);
+  },
+});
+
+// Blog posts
+const { data: posts } = await client.blog.list();
+
+// Products
+const { data: products } = await client.shop.listProducts();
+```
+
+---
+
+## Authentication (Auth)
+
+### Basic Setup
+
+```typescript
+const client = new Diffsome({
   tenantId: 'demo',
-  baseUrl: 'https://promptly.webbyon.com',
+  apiKey: 'pky_xxxxxxxxxxxxxxxx',  // Required
+  persistToken: true,  // Auto-save token
 });
 ```
 
-## v1.3.0 Changes
+### Token Persistence
 
-### Unified Response Structure
+With `persistToken: true`:
+- **Login**: Auto-saved to `localStorage`
+- **Refresh**: Token auto-restored
+- **Logout**: Token auto-removed
+- **Storage key**: `diffsome_auth_token_{tenantId}`
 
-All list APIs now return a consistent `ListResponse<T>` format:
+```typescript
+const client = new Diffsome({
+  tenantId: 'demo',
+  apiKey: 'pky_xxx',
+  persistToken: true,
+  storageType: 'localStorage',  // Default, or 'sessionStorage'
+  onAuthStateChange: (token, user) => {
+    if (token) {
+      console.log('Logged in:', user);
+    } else {
+      console.log('Logged out');
+    }
+  },
+});
+```
+
+### Login / Register
+
+```typescript
+// Register
+await client.auth.register({
+  name: 'John Doe',
+  email: 'john@example.com',
+  password: 'password',
+  password_confirmation: 'password',
+});
+
+// Login (token auto-saved)
+const { member, token } = await client.auth.login({
+  email: 'john@example.com',
+  password: 'password',
+});
+
+// Logout (token auto-removed)
+await client.auth.logout();
+
+// Check auth status
+client.auth.isAuthenticated();  // true/false
+
+// Current user
+const me = await client.auth.me();
+
+// Update profile
+await client.auth.updateProfile({ name: 'New Name' });
+```
+
+### Social Login
+
+```typescript
+// Available providers
+const providers = await client.auth.getSocialProviders();
+// ['google', 'kakao', 'naver']
+
+// Get login URL
+const { url } = await client.auth.getSocialAuthUrl('google');
+window.location.href = url;
+
+// Handle callback (after redirect)
+const { member, token } = await client.auth.socialCallback('google', code);
+```
+
+### Password Reset
+
+```typescript
+// Send reset email
+await client.auth.forgotPassword({ email: 'john@example.com' });
+
+// Reset password
+await client.auth.resetPassword({
+  token: 'reset-token',
+  email: 'john@example.com',
+  password: 'newpassword',
+  password_confirmation: 'newpassword',
+});
+```
+
+---
+
+## Blog API
+
+```typescript
+// List posts
+const { data, meta } = await client.blog.list({
+  page: 1,
+  per_page: 10,
+  category: 'tech',
+  tag: 'laravel',
+  search: 'keyword',
+});
+
+// Get post by slug
+const post = await client.blog.get('post-slug');
+
+// Featured posts
+const featured = await client.blog.featured(5);
+
+// Filter by category/tag
+const { data } = await client.blog.byCategory('news');
+const { data } = await client.blog.byTag('featured');
+
+// Get categories/tags
+const categories = await client.blog.categories();  // string[]
+const tags = await client.blog.tags();  // string[]
+```
+
+---
+
+## Boards API
+
+```typescript
+// List boards
+const { data: boards } = await client.boards.list();
+
+// Get board
+const board = await client.boards.get('board-slug');
+
+// List posts
+const { data: posts } = await client.boards.listPosts('board-slug', {
+  page: 1,
+  per_page: 10,
+  search: 'keyword',
+});
+
+// Get post
+const post = await client.boards.getPost(postId);
+
+// Create post (auth required)
+await client.boards.createPost({
+  board_id: 1,
+  title: 'Title',
+  content: 'Content',
+  is_secret: false,
+});
+
+// Update/Delete post
+await client.boards.updatePost(postId, { title: 'New Title' });
+await client.boards.deletePost(postId);
+```
+
+---
+
+## Comments API
+
+Supports board posts, blog posts, and standalone pages (guestbook).
+
+```typescript
+// Board post comments
+const { data } = await client.comments.boardPost(postId);
+await client.comments.createBoardPost(postId, {
+  author_name: 'John',
+  content: 'Great!',
+  password: '1234',  // Guest comment
+});
+
+// Blog post comments
+const { data } = await client.comments.blogPost('post-slug');
+await client.comments.createBlogPost('post-slug', {
+  content: 'Nice article!',
+});
+
+// Standalone comments (guestbook)
+const { data } = await client.comments.standalone('guestbook');
+await client.comments.createStandalone('guestbook', {
+  author_name: 'Visitor',
+  content: 'Hello!',
+});
+
+// Common operations
+await client.comments.update(commentId, { content: 'Updated' });
+await client.comments.delete(commentId, { password: '1234' });
+await client.comments.like(commentId);
+```
+
+---
+
+## Shop API
+
+### Products
+
+```typescript
+// List products
+const { data: products } = await client.shop.listProducts({
+  category: 'shoes',
+  is_featured: true,
+  min_price: 10000,
+  max_price: 50000,
+  search: 'keyword',
+});
+
+// Get product by slug
+const product = await client.shop.getProduct('product-slug');
+
+// Featured products
+const featured = await client.shop.featuredProducts(8);
+
+// Categories
+const { data: categories } = await client.shop.listCategories();
+```
+
+### Product Types
+
+```typescript
+// Filter by product type
+const { data } = await client.shop.listProductsByType('digital');
+const { data } = await client.shop.getDigitalProducts();
+const { data } = await client.shop.getSubscriptionProducts();
+const { data } = await client.shop.getBundleProducts();
+```
+
+### Product Reviews
+
+```typescript
+// List reviews
+const { data: reviews, stats } = await client.shop.getProductReviews('product-slug', {
+  page: 1,
+  per_page: 10,
+  rating: 5,  // Filter by rating
+});
+
+// Review stats
+// stats = { average_rating: 4.5, total_count: 123, rating_counts: { 5: 80, 4: 30, ... } }
+
+// Create review (auth + purchase required)
+await client.shop.createReview('product-slug', {
+  rating: 5,
+  title: 'Great product!',
+  content: 'Highly recommended.',
+  images: ['https://...'],
+});
+
+// Check if can review
+const { can_review, reason } = await client.shop.canReviewProduct('product-slug');
+
+// Update/Delete review
+await client.shop.updateReview(reviewId, { rating: 4 });
+await client.shop.deleteReview(reviewId);
+
+// Mark as helpful
+await client.shop.markReviewHelpful(reviewId);
+
+// My reviews
+const { data: myReviews } = await client.shop.myReviews();
+```
+
+### Cart
+
+Works for both authenticated users and guests. Guest carts use session ID persistence.
+
+```typescript
+// Get cart
+const cart = await client.shop.getCart();
+
+// Add item
+await client.shop.addToCart({
+  product_id: 1,
+  quantity: 2,
+  variant_id: 3,  // Variant option
+});
+
+// Update quantity
+await client.shop.updateCartItem(itemId, { quantity: 3 });
+
+// Remove item
+await client.shop.removeFromCart(itemId);
+
+// Clear cart
+await client.shop.clearCart();
+```
+
+### Wishlist (Auth Required)
+
+```typescript
+// Get wishlist
+const { data: items } = await client.shop.getWishlist();
+
+// Add to wishlist
+await client.shop.addToWishlist({
+  product_id: 1,
+  variant_id: 2,
+  note: 'Birthday gift',
+});
+
+// Toggle wishlist (add if not in, remove if in)
+const { action, in_wishlist } = await client.shop.toggleWishlist(productId);
+
+// Check if in wishlist
+const isInWishlist = await client.shop.isInWishlist(productId);
+
+// Bulk check (for product list pages)
+const wishlistStatus = await client.shop.checkWishlistBulk([1, 2, 3]);
+// { '1': true, '2': false, '3': true }
+
+// Wishlist count
+const count = await client.shop.getWishlistCount();
+
+// Move to cart
+const { moved, failed, moved_count } = await client.shop.moveWishlistToCart();
+
+// Update note
+await client.shop.updateWishlistNote(wishlistId, 'New note');
+
+// Remove from wishlist
+await client.shop.removeFromWishlist(wishlistId);
+```
+
+### Orders (Auth Required)
+
+```typescript
+// Create order
+const order = await client.shop.createOrder({
+  orderer_name: 'John Doe',
+  orderer_email: 'john@example.com',
+  orderer_phone: '010-1234-5678',
+  shipping_name: 'John Doe',
+  shipping_phone: '010-1234-5678',
+  shipping_zipcode: '12345',
+  shipping_address: 'Seoul, Gangnam',
+  shipping_address_detail: 'Apt 101',
+  shipping_memo: 'Leave at door',
+  coupon_code: 'SAVE10',
+});
+
+// List orders
+const { data: orders } = await client.shop.listOrders();
+
+// Get order
+const orderDetail = await client.shop.getOrder(orderId);
+
+// Cancel order
+await client.shop.cancelOrder(orderId);
+```
+
+### Payments - Toss Payments
+
+```typescript
+// Prepare payment
+const payment = await client.shop.tossPaymentReady({
+  order_number: 'ORD-123',
+  success_url: 'https://mysite.com/payment/success',
+  fail_url: 'https://mysite.com/payment/fail',
+});
+// { client_key, order_id, order_name, amount, customer_name, ... }
+
+// Confirm payment (after Toss redirect)
+const result = await client.shop.tossPaymentConfirm({
+  payment_key: 'toss_payment_key',
+  order_id: 'ORD-123',
+  amount: 50000,
+});
+
+// Cancel payment
+await client.shop.tossPaymentCancel('ORD-123', 'Customer request', 50000);
+```
+
+### Payments - Stripe
+
+```typescript
+// Create Checkout Session
+const { session_id, checkout_url } = await client.shop.stripeCheckout({
+  order_number: 'ORD-123',
+  success_url: 'https://mysite.com/payment/success',
+  cancel_url: 'https://mysite.com/payment/cancel',
+});
+
+// Redirect to Stripe
+window.location.href = checkout_url;
+
+// Verify payment (after Stripe redirect)
+const result = await client.shop.stripeVerify({
+  session_id: 'cs_xxx',
+});
+
+// Refund
+await client.shop.stripeRefund('ORD-123', 'Customer request', 50000);
+```
+
+### Payment Status
+
+```typescript
+// Check available payment methods
+const status = await client.shop.getPaymentStatus();
+// {
+//   toss: { available: true },
+//   stripe: { available: true, publishable_key: 'pk_xxx' }
+// }
+```
+
+### Coupons
+
+```typescript
+// Validate coupon
+const result = await client.shop.validateCoupon('SAVE10', 50000);
+// { valid: true, discount_amount: 5000, coupon: { ... } }
+
+// My coupons
+const coupons = await client.shop.myCoupons();
+```
+
+### Digital Downloads (Auth Required)
+
+```typescript
+// Get all my downloads
+const downloads = await client.shop.getMyDownloads();
+
+// Get downloads for specific order
+const orderDownloads = await client.shop.getOrderDownloads('ORD-123');
+
+// Get download URL
+const downloadUrl = await client.shop.downloadFile(token);
+
+// Get download info without downloading
+const info = await client.shop.getDownloadInfo(token);
+// {
+//   id, token, file: { name, file_size_human, extension },
+//   download_count, download_limit, remaining_downloads,
+//   can_download, blocked_reason, expires_at
+// }
+```
+
+### Subscriptions (Auth Required)
+
+```typescript
+// Get my subscriptions
+const subscriptions = await client.shop.getSubscriptions();
+
+// Get subscription detail
+const subscription = await client.shop.getSubscription(id);
+// {
+//   id, product, plan: { interval, price, trial_days, features },
+//   status, is_active, on_trial, current_period_end, ...
+// }
+
+// Create subscription (requires Stripe payment method)
+const { subscription, client_secret } = await client.shop.createSubscription({
+  plan_id: 1,
+  payment_method_id: 'pm_xxx',
+});
+
+// Create setup intent for adding payment method
+const { client_secret } = await client.shop.createSetupIntent();
+
+// Cancel subscription
+await client.shop.cancelSubscription(id);           // At end of period
+await client.shop.cancelSubscription(id, true);     // Immediately
+
+// Pause/Resume subscription
+await client.shop.pauseSubscription(id);
+await client.shop.resumeSubscription(id);
+```
+
+### Bundle Products
+
+```typescript
+// Get bundle items and pricing
+const bundle = await client.shop.getBundleItems('product-slug');
+// {
+//   items: [{ product_id, name, quantity, unit_price, subtotal }],
+//   original_total: 100000,
+//   discount_type: 'percent',
+//   discount_value: 20,
+//   discount_amount: 20000,
+//   final_price: 80000,
+//   savings_percent: 20
+// }
+```
+
+---
+
+## Reservation API
+
+### Public API
+
+```typescript
+// Reservation settings
+const settings = await client.reservation.getSettings();
+
+// Services list
+const services = await client.reservation.listServices();
+
+// Staff list
+const staff = await client.reservation.listStaff(serviceId);
+
+// Available dates
+const dates = await client.reservation.getAvailableDates({
+  service_id: 1,
+  staff_id: 2,
+  start_date: '2026-01-01',
+  end_date: '2026-01-31',
+});
+
+// Available time slots
+const slots = await client.reservation.getAvailableSlots({
+  service_id: 1,
+  date: '2026-01-15',
+  staff_id: 2,
+});
+```
+
+### Reservation Management (Auth Required)
+
+```typescript
+// Create reservation
+await client.reservation.create({
+  service_id: 1,
+  staff_id: 2,
+  reservation_date: '2026-01-15',
+  start_time: '14:00',
+  customer_name: 'John Doe',
+  customer_phone: '010-1234-5678',
+  customer_email: 'john@example.com',
+  notes: 'Special request',
+});
+
+// My reservations
+const { data } = await client.reservation.list({ status: 'confirmed' });
+
+// Upcoming/Past reservations
+const upcoming = await client.reservation.upcoming(5);
+const past = await client.reservation.past(10);
+
+// Cancel reservation
+await client.reservation.cancel('RES-20260115-001', 'Schedule change');
+```
+
+---
+
+## Forms API
+
+```typescript
+// List forms
+const { data: forms } = await client.forms.list();
+
+// Get form (includes field definitions)
+const form = await client.forms.get('contact');
+
+// Submit form
+await client.forms.submit('contact', {
+  name: 'John Doe',
+  email: 'john@example.com',
+  message: 'Hello!',
+});
+
+// My submissions (auth required)
+const { data: submissions } = await client.forms.mySubmissions();
+```
+
+---
+
+## Media API (Auth Required)
+
+```typescript
+// Upload file
+const media = await client.media.upload(file);
+
+// Upload multiple files
+const mediaList = await client.media.uploadMultiple([file1, file2]);
+
+// My media list
+const { data: myMedia } = await client.media.list({ type: 'image/jpeg' });
+
+// Delete media
+await client.media.delete(mediaId);
+```
+
+---
+
+## Custom Entities API
+
+Dynamic data structure creation and management.
+
+### Entity Definition
+
+```typescript
+// List entities
+const entities = await client.entities.list();
+
+// Get entity
+const entity = await client.entities.get('customers');
+
+// Create entity
+await client.entities.create({
+  name: 'Customer',
+  slug: 'customers',
+  schema: {
+    fields: [
+      { name: 'company', label: 'Company', type: 'text', required: true },
+      { name: 'email', label: 'Email', type: 'email', required: true },
+      { name: 'status', label: 'Status', type: 'select', options: [
+        { value: 'active', label: 'Active' },
+        { value: 'inactive', label: 'Inactive' },
+      ]},
+    ],
+  },
+});
+
+// Update/Delete entity
+await client.entities.update('customers', { name: 'Clients' });
+await client.entities.delete('customers', true);  // force
+```
+
+### Records
+
+```typescript
+// List records
+const { data: records } = await client.entities.listRecords('customers', {
+  search: 'ACME',
+  filters: JSON.stringify({ status: 'active' }),
+});
+
+// Get record
+const record = await client.entities.getRecord('customers', 1);
+
+// Create record
+await client.entities.createRecord('customers', {
+  company: 'ACME Corp',
+  email: 'contact@acme.com',
+  status: 'active',
+});
+
+// Update/Delete record
+await client.entities.updateRecord('customers', 1, { status: 'inactive' });
+await client.entities.deleteRecord('customers', 1);
+```
+
+### TypeScript Support
+
+```typescript
+interface Customer {
+  company: string;
+  email: string;
+  status: 'active' | 'inactive';
+}
+
+const customers = client.entities.typed<Customer>('customers');
+const { data } = await customers.list();  // data: Customer[]
+```
+
+---
+
+## Response Types
+
+All list APIs return consistent format:
 
 ```typescript
 interface ListResponse<T> {
-  data: T[];  // Always an array (never null/undefined)
+  data: T[];  // Always array, never null
   meta: {
     current_page: number;
     last_page: number;
@@ -39,672 +714,17 @@ interface ListResponse<T> {
 }
 ```
 
-**No more defensive code needed:**
-
-```typescript
-// Before (v1.1.0)
-const posts = await client.blog.list();
-const items = posts?.data ?? [];  // Defensive check needed
-
-// After (v1.3.0)
-const { data, meta } = await client.blog.list();
-data.map(post => ...);  // data is always an array
-```
-
-## API Overview
-
-| Resource | Public (No Auth) | Protected (Auth Required) |
-|----------|------------------|---------------------------|
-| **Boards** | list, get | - |
-| **Posts** | listPosts, getPost | createPost, updatePost, deletePost |
-| **Comments** | listComments | createComment, updateComment, deleteComment |
-| **Blog** | list, get, featured, byCategory, byTag | - |
-| **Shop** | listProducts, getProduct, listCategories | getCart, addToCart, listOrders, createOrder |
-| **Forms** | list, get, submit | mySubmissions |
-| **Auth** | login, register | logout, me, updateProfile |
-| **Media** | - | upload, list, delete |
-| **Entities** | list, getSchema, listRecords, getRecord | createRecord, updateRecord, deleteRecord |
-| **Reservation** | getSettings, listServices, listStaff, getAvailableDates, getAvailableSlots | create, list, get, cancel |
-
-## API Reference
-
-### Boards (게시판) - Public
-
-```typescript
-// 게시판 목록
-const { data: boards, meta } = await client.boards.list();
-// Returns: ListResponse<Board>
-
-// 게시판 상세
-const board = await client.boards.get('first'); // slug or id
-// Returns: Board
-
-// 게시판 글 목록
-const { data: posts, meta } = await client.boards.listPosts('first', {
-  page: 1,
-  per_page: 10,
-  search: '검색어', // optional
-});
-// Returns: ListResponse<BoardPost>
-
-// 글 상세
-const post = await client.boards.getPost(1);
-// Returns: BoardPost
-
-// 댓글 목록
-const comments = await client.boards.listComments(1);
-// Returns: BoardComment[] (always an array)
-```
-
-### Posts & Comments - Protected (로그인 필요)
-
-```typescript
-// 먼저 로그인
-await client.auth.login({ email: 'user@example.com', password: 'password' });
-
-// 글 작성
-const newPost = await client.boards.createPost({
-  board_id: 1,
-  title: '제목',
-  content: '내용',
-  is_notice: false,
-});
-
-// 글 수정
-await client.boards.updatePost(postId, {
-  title: '수정된 제목',
-  content: '수정된 내용',
-});
-
-// 글 삭제
-await client.boards.deletePost(postId);
-
-// 댓글 작성
-await client.boards.createComment(postId, {
-  content: '댓글 내용',
-  parent_id: null, // 대댓글이면 부모 댓글 ID
-});
-
-// 댓글 수정
-await client.boards.updateComment(commentId, {
-  content: '수정된 댓글',
-});
-
-// 댓글 삭제
-await client.boards.deleteComment(commentId);
-```
-
-### Blog (블로그) - Public
-
-```typescript
-// 블로그 글 목록
-const { data: posts, meta } = await client.blog.list({
-  page: 1,
-  per_page: 10,
-  category: 'news', // optional
-  tag: 'featured',  // optional
-  search: '검색어', // optional
-});
-// Returns: ListResponse<BlogPost>
-
-// 블로그 글 상세
-const post = await client.blog.get('post-slug');
-// Returns: BlogPost
-
-// 추천 글
-const featured = await client.blog.featured(5);
-// Returns: BlogPost[] (always an array)
-
-// 카테고리별 조회
-const { data: newsPosts } = await client.blog.byCategory('news');
-
-// 태그별 조회
-const { data: taggedPosts } = await client.blog.byTag('featured');
-
-// 카테고리 목록
-const categories = await client.blog.categories();
-// Returns: string[] (always an array)
-
-// 태그 목록
-const tags = await client.blog.tags();
-// Returns: string[] (always an array)
-```
-
-### Shop (쇼핑)
-
-#### Public (로그인 불필요)
-
-```typescript
-// 상품 목록
-const { data: products, meta } = await client.shop.listProducts({
-  page: 1,
-  per_page: 10,
-  category: 'electronics', // optional
-  is_featured: true,       // optional
-  search: '검색어',        // optional
-});
-// Returns: ListResponse<Product>
-
-// 상품 상세
-const product = await client.shop.getProduct('product-slug');
-// Returns: Product
-
-// 추천 상품
-const featured = await client.shop.featuredProducts(8);
-// Returns: Product[] (always an array)
-
-// 카테고리 목록
-const categories = await client.shop.listCategories();
-// Returns: ProductCategory[] (always an array)
-```
-
-#### Protected (로그인 필요)
-
-```typescript
-// 장바구니 조회
-const cart = await client.shop.getCart();
-// Returns: Cart
-
-// 장바구니 추가
-await client.shop.addToCart({
-  product_id: 1,
-  quantity: 2,
-  variant_id: 10, // optional - 옵션상품인 경우
-});
-
-// 장바구니 수량 변경
-await client.shop.updateCartItem(itemId, { quantity: 3 });
-
-// 장바구니 삭제
-await client.shop.removeFromCart(itemId);
-
-// 장바구니 비우기
-await client.shop.clearCart();
-
-// 주문 생성
-const order = await client.shop.createOrder({
-  orderer_name: '홍길동',
-  orderer_email: 'hong@example.com',
-  orderer_phone: '010-1234-5678',
-  shipping_name: '홍길동',
-  shipping_phone: '010-1234-5678',
-  shipping_zipcode: '12345',
-  shipping_address: '서울시 강남구',
-  shipping_address_detail: '101호',
-  shipping_memo: '문 앞에 놓아주세요',
-  coupon_code: 'SAVE10', // optional
-});
-
-// 주문 목록
-const { data: orders, meta } = await client.shop.listOrders();
-// Returns: ListResponse<Order>
-
-// 주문 상세
-const order = await client.shop.getOrder(orderId);
-// Returns: Order
-
-// 주문 취소
-await client.shop.cancelOrder(orderId);
-
-// 쿠폰 검증
-const validation = await client.shop.validateCoupon('SAVE10', 50000);
-// Returns: { valid: boolean, discount_amount: number, coupon: Coupon }
-
-// 내 쿠폰 목록
-const coupons = await client.shop.myCoupons();
-// Returns: Coupon[] (always an array)
-```
-
-### Reservation (예약) - NEW in v1.3.0
-
-#### Public (로그인 불필요)
-
-```typescript
-// 예약 설정 조회
-const settings = await client.reservation.getSettings();
-// Returns: ReservationSettings
-
-// 서비스 목록
-const services = await client.reservation.listServices();
-// Returns: ReservationService[] (always an array)
-
-// 담당자 목록
-const staffs = await client.reservation.listStaff();
-// Returns: ReservationStaff[] (always an array)
-
-// 특정 서비스의 담당자만 조회
-const serviceStaffs = await client.reservation.listStaff(serviceId);
-
-// 예약 가능 날짜 조회
-const dates = await client.reservation.getAvailableDates({
-  service_id: 1,
-  staff_id: 2,        // optional
-  start_date: '2026-01-01', // optional
-  end_date: '2026-01-31',   // optional
-});
-// Returns: string[] (YYYY-MM-DD format)
-
-// 예약 가능 시간 슬롯 조회
-const slots = await client.reservation.getAvailableSlots({
-  service_id: 1,
-  date: '2026-01-15',
-  staff_id: 2, // optional
-});
-// Returns: ReservationSlot[]
-```
-
-#### Protected (로그인 필요)
-
-```typescript
-// 예약 생성
-const result = await client.reservation.create({
-  service_id: 1,
-  staff_id: 2, // optional
-  reservation_date: '2026-01-15',
-  start_time: '14:00',
-  customer_name: '홍길동',
-  customer_phone: '010-1234-5678', // optional
-  customer_email: 'hong@example.com', // optional
-  customer_memo: '요청사항', // optional
-});
-// Returns: { reservation: Reservation, requires_payment: boolean, deposit: number }
-
-// 내 예약 목록
-const { data: reservations, meta } = await client.reservation.list({
-  status: 'confirmed', // optional
-  upcoming: true,      // optional
-  past: false,         // optional
-});
-// Returns: ListResponse<Reservation>
-
-// 다가오는 예약
-const upcoming = await client.reservation.upcoming(5);
-// Returns: Reservation[] (always an array)
-
-// 지난 예약
-const past = await client.reservation.past(10);
-// Returns: Reservation[] (always an array)
-
-// 예약 상세
-const reservation = await client.reservation.get('RES-20260115-001');
-// Returns: Reservation
-
-// 예약 취소
-const cancelled = await client.reservation.cancel('RES-20260115-001', '일정 변경');
-// Returns: Reservation
-```
-
-### Auth (인증)
-
-```typescript
-// 로그인
-const response = await client.auth.login({
-  email: 'user@example.com',
-  password: 'password',
-});
-// Returns: { member: Member, token: string }
-// 토큰은 자동으로 저장됨
-
-// 회원가입
-await client.auth.register({
-  name: '홍길동',
-  email: 'user@example.com',
-  password: 'password',
-  password_confirmation: 'password',
-  phone: '010-1234-5678', // optional
-});
-
-// 로그아웃
-await client.auth.logout();
-
-// 내 정보 조회
-const me = await client.auth.me();
-// Returns: Member
-
-// 프로필 수정
-await client.auth.updateProfile({
-  name: '새이름',
-  phone: '010-9999-8888',
-});
-
-// 비밀번호 변경
-await client.auth.updateProfile({
-  current_password: '현재비밀번호',
-  password: '새비밀번호',
-  password_confirmation: '새비밀번호',
-});
-
-// 인증 여부 확인
-client.isAuthenticated(); // true or false
-
-// 토큰 직접 설정 (localStorage에서 복원시)
-client.setToken('saved-token');
-
-// 토큰 가져오기
-const token = client.getToken();
-```
-
-#### 소셜 로그인
-
-```typescript
-// 소셜 로그인 제공자 목록
-const providers = await client.auth.getSocialProviders();
-// Returns: SocialProvider[]
-
-// 소셜 로그인 URL 가져오기
-const { url } = await client.auth.getSocialAuthUrl('google');
-// 해당 URL로 리다이렉트
-
-// 콜백 처리 (리다이렉트 후)
-const response = await client.auth.socialCallback('google', code);
-// Returns: { member: Member, token: string }
-```
-
-### Forms (폼) - Public
-
-```typescript
-// 폼 목록
-const { data: forms } = await client.forms.list();
-// Returns: ListResponse<Form>
-
-// 폼 상세
-const form = await client.forms.get('contact');
-// Returns: Form (필드 정보 포함)
-
-// 폼 제출 (로그인 불필요)
-await client.forms.submit('contact', {
-  name: '홍길동',
-  email: 'user@example.com',
-  message: '문의 내용',
-});
-
-// 내 제출 목록 (로그인 필요)
-const { data: submissions } = await client.forms.mySubmissions();
-// Returns: ListResponse<FormSubmission>
-```
-
-### Media (미디어) - Protected
-
-```typescript
-// 파일 업로드
-const media = await client.media.upload(file); // File or Blob
-// Returns: Media
-
-// 여러 파일 업로드
-const mediaList = await client.media.uploadMultiple([file1, file2]);
-// Returns: Media[]
-
-// 내 미디어 목록
-const { data: mediaList, meta } = await client.media.list({
-  page: 1,
-  per_page: 20,
-  type: 'image/jpeg', // optional
-});
-// Returns: ListResponse<Media>
-
-// 미디어 삭제
-await client.media.delete(mediaId);
-```
-
-### Entities (커스텀 엔티티) - AI가 생성한 동적 데이터
-
-AI가 MCP를 통해 생성한 커스텀 데이터 구조에 접근합니다.
-
-#### Public
-
-```typescript
-// 엔티티 목록 조회
-const entities = await client.entities.list();
-// Returns: CustomEntity[] (always an array)
-
-// 엔티티 스키마 조회
-const schema = await client.entities.getSchema('customer');
-// Returns: EntitySchema
-
-// 레코드 목록 조회
-const { data: customers, meta } = await client.entities.listRecords('customer', {
-  page: 1,
-  per_page: 20,
-  status: 'active',
-});
-// Returns: ListResponse<EntityRecord>
-
-// 데이터 필드로 필터링
-const { data: vipCustomers } = await client.entities.listRecords('customer', {
-  'data.tier': 'vip',
-});
-
-// 단일 레코드 조회
-const customer = await client.entities.getRecord('customer', 1);
-// Returns: EntityRecord
-console.log(customer.data.company); // 'ABC Corp'
-```
-
-#### Protected (로그인 필요)
-
-```typescript
-// 레코드 생성
-const newCustomer = await client.entities.createRecord('customer', {
-  data: {
-    company: 'ABC Corp',
-    email: 'contact@abc.com',
-    tier: 'standard',
-  },
-  status: 'active',
-});
-
-// 레코드 수정
-await client.entities.updateRecord('customer', 1, {
-  data: { tier: 'vip' },
-});
-
-// 레코드 삭제
-await client.entities.deleteRecord('customer', 1);
-```
-
-#### TypeScript 타입 지원
-
-```typescript
-// 타입이 지정된 엔티티 접근자
-interface Customer {
-  company: string;
-  email: string;
-  tier: 'standard' | 'vip';
-}
-
-const customers = client.entities.typed<Customer>('customer');
-
-// 타입이 추론됨
-const list = await customers.list();
-list.data[0].data.company; // string
-
-const record = await customers.get(1);
-record.data.tier; // 'standard' | 'vip'
-
-// 생성/수정도 타입 체크
-await customers.create({
-  company: 'New Corp',
-  email: 'new@corp.com',
-  tier: 'standard',
-});
-```
-
-### Site Settings - Public
-
-```typescript
-// 테마 설정
-const theme = await client.getTheme();
-// Returns: { name, colors, fonts }
-
-// 사이트 설정
-const settings = await client.getSettings();
-// Returns: Record<string, any>
-```
-
-## Types
-
-### Common Types
-
-```typescript
-// Unified list response type
-interface ListResponse<T> {
-  data: T[];
-  meta: PaginationMeta;
-}
-
-interface PaginationMeta {
-  current_page: number;
-  last_page: number;
-  per_page: number;
-  total: number;
-  from: number | null;
-  to: number | null;
-}
-```
-
-### Resource Types
-
-```typescript
-interface Board {
-  id: number;
-  slug: string;
-  name: string;
-  description?: string;
-  is_active: boolean;
-  created_at: string;
-}
-
-interface BoardPost {
-  id: number;
-  board_id: number;
-  title: string;
-  content: string;
-  excerpt?: string;
-  author: string;
-  views: number;
-  is_notice: boolean;
-  is_private: boolean;
-  comment_count: number;
-  attachments?: Media[];
-  created_at: string;
-}
-
-interface BlogPost {
-  id: number;
-  slug: string;
-  title: string;
-  content: string;
-  excerpt?: string;
-  featured_image?: string;
-  category?: string;
-  tags?: string[];
-  author_name?: string;
-  is_published: boolean;
-  published_at?: string;
-  view_count: number;
-  created_at: string;
-}
-
-interface Product {
-  id: number;
-  slug: string;
-  name: string;
-  description?: string;
-  price: number;
-  compare_price?: number;
-  thumbnail?: string;
-  images?: string[];
-  status: 'draft' | 'active' | 'inactive';
-  is_featured: boolean;
-  in_stock?: boolean;
-  discount_percent?: number;
-  created_at: string;
-}
-
-interface Reservation {
-  id: number;
-  reservation_number: string;
-  status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
-  status_label: string;
-  reservation_date: string;
-  start_time: string;
-  end_time: string;
-  time_range: string;
-  customer_name: string;
-  customer_phone: string | null;
-  customer_email: string | null;
-  price: number;
-  deposit: number;
-  payment_status: 'pending' | 'paid' | 'refunded' | 'partial';
-  can_cancel: boolean;
-  service: { id: number; name: string; duration: number; } | null;
-  staff: { id: number; name: string; avatar: string | null; } | null;
-  created_at: string;
-}
-
-interface ReservationService {
-  id: number;
-  name: string;
-  slug: string;
-  description: string | null;
-  thumbnail: string | null;
-  duration: number;
-  price: number;
-  requires_staff: boolean;
-  requires_payment: boolean;
-  deposit: number;
-  staffs: Array<{ id: number; name: string; avatar: string | null; }>;
-}
-
-interface ReservationSettings {
-  timezone: string;
-  slot_interval: number;
-  min_notice_hours: number;
-  max_advance_days: number;
-  cancellation_hours: number;
-  allow_online_payment: boolean;
-  bookable_date_range: { start: string; end: string; };
-}
-
-interface Member {
-  id: number;
-  name: string;
-  email: string;
-  phone?: string;
-  avatar?: string;
-  is_active: boolean;
-  created_at: string;
-}
-
-interface CustomEntity {
-  id: number;
-  name: string;
-  slug: string;
-  description?: string;
-  schema: EntitySchema;
-  is_active: boolean;
-  created_at: string;
-}
-
-interface EntityRecord {
-  id: number;
-  entity_id: number;
-  data: Record<string, any>;
-  status: 'active' | 'archived' | 'draft';
-  created_at: string;
-  updated_at: string;
-}
-```
+---
 
 ## Error Handling
 
 ```typescript
-import { Promptly, PromptlyError } from '@back23/promptly-sdk';
+import { Diffsome, DiffsomeError } from '@diffsome/sdk';
 
 try {
   await client.auth.login({ email: 'wrong@email.com', password: 'wrong' });
 } catch (error) {
-  if (error instanceof PromptlyError) {
+  if (error instanceof DiffsomeError) {
     console.log(error.message);  // "Invalid credentials"
     console.log(error.status);   // 401
     console.log(error.errors);   // { email: ["Invalid email or password"] }
@@ -712,30 +732,34 @@ try {
 }
 ```
 
+---
+
 ## React Example
 
 ```tsx
-import { useState, useEffect } from 'react';
-import { Promptly } from '@back23/promptly-sdk';
+'use client';
 
-const client = new Promptly({
-  tenantId: 'demo',
-  baseUrl: 'https://promptly.webbyon.com',
+import { useState, useEffect } from 'react';
+import { Diffsome } from '@diffsome/sdk';
+
+// Singleton client
+const client = new Diffsome({
+  tenantId: process.env.NEXT_PUBLIC_DIFFSOME_TENANT_ID!,
+  apiKey: process.env.NEXT_PUBLIC_DIFFSOME_API_KEY!,
+  persistToken: true,
 });
 
-// 블로그 글 목록 (with pagination)
 function BlogList() {
   const [posts, setPosts] = useState([]);
-  const [meta, setMeta] = useState(null);
-  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    client.blog.list({ page, per_page: 10 })
-      .then(({ data, meta }) => {
-        setPosts(data);  // Always an array
-        setMeta(meta);
-      });
-  }, [page]);
+    client.blog.list({ per_page: 10 })
+      .then(({ data }) => setPosts(data))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div>Loading...</div>;
 
   return (
     <div>
@@ -745,81 +769,64 @@ function BlogList() {
           <p>{post.excerpt}</p>
         </article>
       ))}
-
-      {meta && (
-        <div>
-          Page {meta.current_page} of {meta.last_page}
-          <button
-            onClick={() => setPage(p => p - 1)}
-            disabled={page <= 1}
-          >
-            Previous
-          </button>
-          <button
-            onClick={() => setPage(p => p + 1)}
-            disabled={page >= meta.last_page}
-          >
-            Next
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// 예약 폼
-function ReservationForm() {
-  const [services, setServices] = useState([]);
-  const [selectedService, setSelectedService] = useState(null);
-  const [dates, setDates] = useState([]);
-  const [slots, setSlots] = useState([]);
-
-  useEffect(() => {
-    client.reservation.listServices().then(setServices);
-  }, []);
-
-  useEffect(() => {
-    if (selectedService) {
-      client.reservation.getAvailableDates({
-        service_id: selectedService,
-      }).then(setDates);
-    }
-  }, [selectedService]);
-
-  const handleDateSelect = async (date) => {
-    const availableSlots = await client.reservation.getAvailableSlots({
-      service_id: selectedService,
-      date,
-    });
-    setSlots(availableSlots);
-  };
-
-  return (
-    <div>
-      <select onChange={e => setSelectedService(Number(e.target.value))}>
-        <option>서비스 선택</option>
-        {services.map(s => (
-          <option key={s.id} value={s.id}>{s.name}</option>
-        ))}
-      </select>
-
-      <div>
-        {dates.map(date => (
-          <button key={date} onClick={() => handleDateSelect(date)}>
-            {date}
-          </button>
-        ))}
-      </div>
-
-      <div>
-        {slots.filter(s => s.available).map(slot => (
-          <button key={slot.time}>{slot.time}</button>
-        ))}
-      </div>
     </div>
   );
 }
 ```
+
+---
+
+## Changelog
+
+### v3.2.0
+- Bundle product support
+- `getBundleItems()` API
+- Product type filter (`listProductsByType()`)
+
+### v3.1.0
+- Subscription management API
+- `getSubscriptions()`, `createSubscription()`, `cancelSubscription()`
+- `pauseSubscription()`, `resumeSubscription()`
+- Stripe setup intent for payment method
+
+### v3.0.0
+- **Breaking:** Renamed from `Promptly` to `Diffsome`
+- **Breaking:** Storage key changed from `promptly_auth_token_` to `diffsome_auth_token_`
+- Digital download API (`getMyDownloads()`, `downloadFile()`)
+- Wishlist API (full CRUD + bulk operations)
+- Guest cart with session persistence
+- Stripe payment integration
+
+### v2.18.0
+- Product review API
+- Shipping settings API
+
+### v2.15.0
+- Toss Payments integration
+
+### v2.12.0
+- Blog category/tag filters
+- Added `category`, `tags`, `views`, `published_at` fields
+
+### v2.10.0
+- `persistToken` option for auto token storage
+- `onAuthStateChange` callback
+- `storageType` option
+
+### v2.5.0
+- Secret posts support (`is_secret`, `is_mine`)
+
+### v2.3.0
+- Polymorphic comments API (board, blog, standalone)
+
+### v2.0.0
+- **Breaking:** API key required
+
+### v1.3.0
+- `ListResponse<T>` unified format
+- Reservation system support
+
+---
 
 ## License
 

@@ -1,7 +1,7 @@
 {
-  "name": "@back23/promptly-sdk",
-  "version": "1.3.1",
-  "description": "Promptly AI CMS SDK for JavaScript/TypeScript",
+  "name": "@diffsome/sdk",
+  "version": "3.2.7",
+  "description": "Diffsome SDK for JavaScript/TypeScript - Different + Awesome",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -19,10 +19,11 @@
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "typecheck": "tsc --noEmit",
+    "generate:types": "openapi-typescript $(grep '^APP_URL=' ../../.env | cut -d '=' -f2)/docs/api.json -o src/types/generated.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "promptly",
+    "diffsome",
     "cms",
     "headless",
     "api",
@@ -32,9 +33,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kingofecommerce/back23-promptly-sdk.git"
+    "url": "https://github.com/diffsome/sdk.git"
   },
-    "devDependencies": {
+  "devDependencies": {
+    "openapi-typescript": "^7.10.1",
     "tsup": "^8.0.0",
     "typescript": "^5.3.0"
   },

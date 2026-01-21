@@ -28,18 +28,18 @@ export class BoardsResource {
    * @returns ListResponse with data array (always defined) and pagination meta
    */
   async list(params?: BoardListParams): Promise<ListResponse<Board>> {
-    return this.http.getList<Board>('/public/boards', params);
+    return this.http.getList<Board>('/boards', params);
   }
 
   /**
    * Get board by ID or slug
    */
   async get(idOrSlug: number | string): Promise<Board> {
-    return this.http.get<Board>(`/public/boards/${idOrSlug}`);
+    return this.http.get<Board>(`/boards/${idOrSlug}`);
   }
 
   // ============================================
-  // Posts (Public)
+  // Posts
   // ============================================
 
   /**
@@ -47,14 +47,14 @@ export class BoardsResource {
    * @returns ListResponse with data array and pagination meta
    */
   async listPosts(boardIdOrSlug: number | string, params?: PostListParams): Promise<ListResponse<BoardPost>> {
-    return this.http.getList<BoardPost>(`/public/boards/${boardIdOrSlug}/posts`, params);
+    return this.http.getList<BoardPost>(`/boards/${boardIdOrSlug}/posts`, params);
   }
 
   /**
    * Get post by ID
    */
   async getPost(postId: number): Promise<BoardPost> {
-    return this.http.get<BoardPost>(`/public/posts/${postId}`);
+    return this.http.get<BoardPost>(`/posts/${postId}`);
   }
 
   // ============================================
@@ -91,7 +91,7 @@ export class BoardsResource {
    * @returns Array of comments (always an array, never null/undefined)
    */
   async listComments(postId: number): Promise<BoardComment[]> {
-    const response = await this.http.getList<BoardComment>(`/public/posts/${postId}/comments`);
+    const response = await this.http.getList<BoardComment>(`/posts/${postId}/comments`);
     return response.data;
   }
 

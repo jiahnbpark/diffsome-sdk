@@ -1,8 +1,8 @@
 /**
- * HTTP Client for Promptly SDK
+ * HTTP Client for Diffsome SDK
  */
 
-import type { PromptlyConfig, ApiError, ListResponse, PaginationMeta } from './types';
+import type { DiffsomeConfig, ApiError, ListResponse, PaginationMeta } from './types';
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -59,13 +59,13 @@ function normalizeListResponse<T>(response: any): ListResponse<T> {
   return { data: [], meta: { ...DEFAULT_META } };
 }
 
-export class PromptlyError extends Error {
+export class DiffsomeError extends Error {
   public status: number;
   public errors?: Record<string, string[]>;
 
   constructor(message: string, status: number, errors?: Record<string, string[]>) {
     super(message);
-    this.name = 'PromptlyError';
+    this.name = 'DiffsomeError';
     this.status = status;
     this.errors = errors;
   }
@@ -76,18 +76,82 @@ export class HttpClient {
   private tenantId: string;
   private timeout: number;
   private token: string | null = null;
+  private apiKey: string | null = null;
+  private cartSessionId: string | null = null;
 
-  constructor(config: PromptlyConfig) {
+  // Token persistence options
+  private persistToken: boolean = false;
+  private storageType: 'localStorage' | 'sessionStorage' = 'localStorage';
+  private storageKey: string;
+  private onAuthStateChange?: (token: string | null, member?: any) => void;
+
+  constructor(config: DiffsomeConfig) {
     this.tenantId = config.tenantId;
-    this.baseUrl = (config.baseUrl || 'https://promptly.webbyon.com').replace(/\/$/, '');
+    this.baseUrl = (config.baseUrl || 'https://diffsome.com').replace(/\/$/, '');
     this.timeout = config.timeout || 30000;
+    this.apiKey = config.apiKey || null;
+
+    // Token persistence configuration
+    this.persistToken = config.persistToken ?? false;
+    this.storageType = config.storageType ?? 'localStorage';
+    this.storageKey = config.storageKey ?? `diffsome_auth_token_${this.tenantId}`;
+    this.onAuthStateChange = config.onAuthStateChange;
+
+    // Load cart session from localStorage if available (browser only)
+    if (typeof window !== 'undefined' && window.localStorage) {
+      this.cartSessionId = localStorage.getItem(`diffsome_cart_session_${this.tenantId}`);
+    }
+
+    // Auto-restore token from storage if persistence is enabled
+    if (this.persistToken && typeof window !== 'undefined') {
+      const storage = this.getStorage();
+      if (storage) {
+        const savedToken = storage.getItem(this.storageKey);
+        if (savedToken) {
+          this.token = savedToken;
+          // Notify about restored token (without member data - will be fetched separately)
+          this.onAuthStateChange?.(savedToken, undefined);
+        }
+      }
+    }
+
+    // Apply initial token from config (overrides stored token)
+    if (config.token) {
+      this.token = config.token;
+    }
+  }
+
+  /**
+   * Get the storage object based on config
+   */
+  private getStorage(): Storage | null {
+    if (typeof window === 'undefined') return null;
+    return this.storageType === 'sessionStorage' ? window.sessionStorage : window.localStorage;
   }
 
   /**
    * Set authentication token
+   * If persistToken is enabled, automatically saves/removes from storage
+   * @param token - The auth token or null to clear
+   * @param user - The logged-in user (Member) for the callback
    */
-  setToken(token: string | null): void {
+  setToken(token: string | null, user?: any): void {
     this.token = token;
+
+    // Auto-persist to storage if enabled
+    if (this.persistToken) {
+      const storage = this.getStorage();
+      if (storage) {
+        if (token) {
+          storage.setItem(this.storageKey, token);
+        } else {
+          storage.removeItem(this.storageKey);
+        }
+      }
+    }
+
+    // Notify about auth state change
+    this.onAuthStateChange?.(token, user ?? null);
   }
 
   /**
@@ -101,7 +165,63 @@ export class HttpClient {
    * Check if authenticated
    */
   isAuthenticated(): boolean {
-    return this.token !== null;
+    return this.token !== null || this.apiKey !== null;
+  }
+
+  /**
+   * Set API key for server-to-server authentication
+   */
+  setApiKey(apiKey: string | null): void {
+    this.apiKey = apiKey;
+  }
+
+  /**
+   * Get current API key
+   */
+  getApiKey(): string | null {
+    return this.apiKey;
+  }
+
+  /**
+   * Get the base URL with tenant path
+   */
+  getBaseUrl(): string {
+    return `${this.baseUrl}/api/${this.tenantId}`;
+  }
+
+  /**
+   * Get the download URL for a digital file
+   * Includes auth_token query parameter for authentication
+   */
+  getDownloadUrl(token: string): string {
+    const url = `${this.baseUrl}/download/${this.tenantId}/${token}`;
+    // Include auth token if available
+    if (this.token) {
+      return `${url}?auth_token=${encodeURIComponent(this.token)}`;
+    }
+    return url;
+  }
+
+  /**
+   * Set cart session ID (for guest cart persistence)
+   */
+  setCartSessionId(sessionId: string | null): void {
+    this.cartSessionId = sessionId;
+    // Persist to localStorage if available
+    if (typeof window !== 'undefined' && window.localStorage) {
+      if (sessionId) {
+        localStorage.setItem(`diffsome_cart_session_${this.tenantId}`, sessionId);
+      } else {
+        localStorage.removeItem(`diffsome_cart_session_${this.tenantId}`);
+      }
+    }
+  }
+
+  /**
+   * Get cart session ID
+   */
+  getCartSessionId(): string | null {
+    return this.cartSessionId;
   }
 
   /**
@@ -123,6 +243,7 @@ export class HttpClient {
 
   /**
    * Build request headers
+   * Both API key and bearer token can be sent together
    */
   private buildHeaders(customHeaders?: Record<string, string>): Record<string, string> {
     const headers: Record<string, string> = {
@@ -131,8 +252,19 @@ export class HttpClient {
       ...customHeaders,
     };
 
+    // API key for tenant authentication
+    if (this.apiKey) {
+      headers['X-API-Key'] = this.apiKey;
+    }
+
+    // Bearer token for member authentication
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    // Cart session for guest cart persistence
+    if (this.cartSessionId) {
+      headers['X-Cart-Session'] = this.cartSessionId;
     }
 
     return headers;
@@ -163,7 +295,7 @@ export class HttpClient {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new PromptlyError(
+        throw new DiffsomeError(
           data.message || 'Request failed',
           response.status,
           data.errors
@@ -175,18 +307,18 @@ export class HttpClient {
     } catch (error) {
       clearTimeout(timeoutId);
 
-      if (error instanceof PromptlyError) {
+      if (error instanceof DiffsomeError) {
         throw error;
       }
 
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
-          throw new PromptlyError('Request timeout', 408);
+          throw new DiffsomeError('Request timeout', 408);
         }
-        throw new PromptlyError(error.message, 0);
+        throw new DiffsomeError(error.message, 0);
       }
 
-      throw new PromptlyError('Unknown error', 0);
+      throw new DiffsomeError('Unknown error', 0);
     }
   }
 
@@ -230,8 +362,8 @@ export class HttpClient {
   /**
    * DELETE request
    */
-  delete<T>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'DELETE' });
+  delete<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
+    return this.request<T>(endpoint, { method: 'DELETE', params });
   }
 
   /**
@@ -246,6 +378,12 @@ export class HttpClient {
       'Accept': 'application/json',
     };
 
+    // API key for tenant authentication
+    if (this.apiKey) {
+      headers['X-API-Key'] = this.apiKey;
+    }
+
+    // Bearer token for member authentication
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
@@ -266,7 +404,7 @@ export class HttpClient {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new PromptlyError(
+        throw new DiffsomeError(
           data.message || 'Upload failed',
           response.status,
           data.errors
@@ -277,18 +415,18 @@ export class HttpClient {
     } catch (error) {
       clearTimeout(timeoutId);
 
-      if (error instanceof PromptlyError) {
+      if (error instanceof DiffsomeError) {
         throw error;
       }
 
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
-          throw new PromptlyError('Upload timeout', 408);
+          throw new DiffsomeError('Upload timeout', 408);
         }
-        throw new PromptlyError(error.message, 0);
+        throw new DiffsomeError(error.message, 0);
       }
 
-      throw new PromptlyError('Unknown error', 0);
+      throw new DiffsomeError('Unknown error', 0);
     }
   }
 }

@@ -20,22 +20,24 @@ export class AuthResource {
 
   /**
    * Login with email and password
+   * Token is automatically saved if persistToken is enabled
    */
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
     const response = await this.http.post<AuthResponse>('/auth/login', credentials);
     if (response.token) {
-      this.http.setToken(response.token);
+      this.http.setToken(response.token, response.user);
     }
     return response;
   }
 
   /**
    * Register new member
+   * Token is automatically saved if persistToken is enabled
    */
   async register(data: RegisterData): Promise<AuthResponse> {
     const response = await this.http.post<AuthResponse>('/auth/register', data);
     if (response.token) {
-      this.http.setToken(response.token);
+      this.http.setToken(response.token, response.user);
     }
     return response;
   }
@@ -83,7 +85,7 @@ export class AuthResource {
    * Get available social login providers
    */
   async getSocialProviders(): Promise<SocialProvider[]> {
-    return this.http.get<SocialProvider[]>('/auth/social');
+    return this.http.get<SocialProvider[]>('/auth/social/providers');
   }
 
   /**
@@ -95,11 +97,12 @@ export class AuthResource {
 
   /**
    * Handle social login callback
+   * Token is automatically saved if persistToken is enabled
    */
   async socialCallback(provider: string, code: string): Promise<AuthResponse> {
     const response = await this.http.post<AuthResponse>(`/auth/social/${provider}/callback`, { code });
     if (response.token) {
-      this.http.setToken(response.token);
+      this.http.setToken(response.token, response.user);
     }
     return response;
   }

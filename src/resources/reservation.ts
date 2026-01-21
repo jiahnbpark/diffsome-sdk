@@ -29,7 +29,7 @@ export class ReservationResource {
    * @returns Reservation settings for the tenant
    */
   async getSettings(): Promise<ReservationSettings> {
-    return this.http.get<ReservationSettings>('/public/reservations/settings');
+    return this.http.get<ReservationSettings>('/reservation/settings');
   }
 
   /**
@@ -37,7 +37,7 @@ export class ReservationResource {
    * @returns Array of services (always an array)
    */
   async listServices(): Promise<ReservationService[]> {
-    const response = await this.http.getList<ReservationService>('/public/reservations/services');
+    const response = await this.http.getList<ReservationService>('/reservation/services');
     return response.data;
   }
 
@@ -48,7 +48,7 @@ export class ReservationResource {
    */
   async listStaff(serviceId?: number): Promise<ReservationStaff[]> {
     const params = serviceId ? { service_id: serviceId } : undefined;
-    const response = await this.http.getList<ReservationStaff>('/public/reservations/staffs', params);
+    const response = await this.http.getList<ReservationStaff>('/reservation/staffs', params);
     return response.data;
   }
 
@@ -57,7 +57,7 @@ export class ReservationResource {
    * @returns Array of available date strings (YYYY-MM-DD)
    */
   async getAvailableDates(params: AvailableDatesParams): Promise<string[]> {
-    const response = await this.http.get<string[] | { data: string[] }>('/public/reservations/dates', params);
+    const response = await this.http.get<string[] | { data: string[] }>('/reservation/available-dates', params);
     return Array.isArray(response) ? response : (response?.data ?? []);
   }
 
@@ -66,7 +66,7 @@ export class ReservationResource {
    * @returns Array of available slots (always an array)
    */
   async getAvailableSlots(params: AvailableSlotsParams): Promise<ReservationSlot[]> {
-    const response = await this.http.get<ReservationSlot[] | { data: ReservationSlot[] }>('/public/reservations/slots', params);
+    const response = await this.http.get<ReservationSlot[] | { data: ReservationSlot[] }>('/reservation/available-slots', params);
     return Array.isArray(response) ? response : (response?.data ?? []);
   }
 
